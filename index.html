@@ -253,8 +253,7 @@
         let processedData = [];
         let summary = {};
         let barChart, pieChart;
-        let realtimeInterval;
-        let googleAppsScriptUrl = 'https://script.google.com/macros/s/AKfycbysACXGzG-04hpQjIuTrSk0MIVLTPw9uWnWeGb-Z3yxSVcdsEYdSLNZ9VOknja4sWQ/exec'; // 事前設定済み
+        let defaultSpreadsheetUrl = 'https://docs.google.com/spreadsheets/d/1zZTMede6zZe80Sz56BZAqUKtarU0boF17eVqZxTvz30/export?format=csv&gid=1905694608';
 
         // 個人別月額目標
         const INDIVIDUAL_TARGETS = {
@@ -408,35 +407,44 @@
             }
         }
 
-        // デフォルトスプレッドシートに接続
-        async function connectToDefaultSpreadsheet() {
+        // デフォルトスプレッドシートから読み込み
+        async function loadFromDefaultSpreadsheet() {
             try {
-                document.getElementById('uploadArea').style.display = 'none';
-                await fetchFromGoogleAppsScript();
-                setupConnection();
-                showError('', 'success', '✅ デジラボスプレッドシートに接続しました');
+                showLoading();
+                hideError();
+
+                const response = await fetch(defaultSpreadsheetUrl);
+                if (!response.ok) {
+                    throw new Error('スプレッドシートにアクセスできません。共有設定を確認してください。');
+                }
+
+                const csvText = await response.text();
+                rawData = parseCSV(csvText);
+                
+                processData();
+                createSummary();
+                updateDisplay();
+                hideLoading();
+                showResults();
+                
+                showError('', 'success', '✅ デジラボスプレッドシートから正常に読み込まれました');
+                
             } catch (error) {
-                document.getElementById('uploadArea').style.display = 'block';
-                showError('接続エラー: ' + error.message + '\n\nファイルアップロードまたは別のスプレッドシートをお試しください。');
+                showError('スプレッドシート読み込みエラー: ' + error.message);
+                hideLoading();
             }
         }
 
-        // ページ読み込み時に自動接続を試行
+        // ページ読み込み時に自動読み込みを試行
         window.addEventListener('load', async function() {
-            console.log('ページ読み込み完了、自動接続を開始...');
-            console.log('使用URL:', googleAppsScriptUrl);
+            console.log('ページ読み込み完了、自動読み込みを開始...');
             
-            // デフォルトスプレッドシートへの自動接続を試行
             try {
-                await fetchFromGoogleAppsScript();
-                setupConnection();
-                document.getElementById('uploadArea').style.display = 'none';
-                showError('', 'success', '✅ デジラボスプレッドシートに自動接続しました');
-                console.log('自動接続成功');
+                await loadFromDefaultSpreadsheet();
+                console.log('自動読み込み成功');
             } catch (error) {
-                // 自動接続に失敗した場合は通常の画面を表示
-                console.error('自動接続失敗:', error);
-                showError('自動接続に失敗しました: ' + error.message + '\n\n手動で「🚀 デジラボ分析を開始」ボタンをクリックしてください。');
+                console.error('自動読み込み失敗:', error);
+                showError('自動読み込みに失敗しました: ' + error.message + '\n\n手動で「🚀 デジラボスプレッドシートを読み込み」ボタンをクリックしてください。');
             }
         });
 
@@ -446,27 +454,57 @@
             area.style.display = area.style.display === 'none' ? 'block' : 'none';
         }
 
-        // 手動更新
-        async function manualUpdate() {
-            if (!googleAppsScriptUrl) {
-                showError('スプレッドシートが接続されていません');
+        // Googleスプレッドシートから直接読み込み
+        async function loadFromSpreadsheet() {
+            const url = document.getElementById('spreadsheetUrl').value.trim();
+            if (!url) {
+                showError('スプレッドシートのURLを入力してください');
                 return;
             }
 
             try {
-                await fetchFromGoogleAppsScript();
-                showError('', 'success', '✅ データを更新しました');
-                updateLastUpdateTime();
+                showLoading();
+                hideError();
+
+                // スプレッドシートURLからCSV形式で取得
+                let csvUrl;
+                if (url.includes('/edit')) {
+                    // 通常のスプレッドシートURL
+                    const spreadsheetId = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/)[1];
+                    csvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv`;
+                } else {
+                    showError('正しいGoogleスプレッドシートのURLを入力してください');
+                    hideLoading();
+                    return;
+                }
+
+                const response = await fetch(csvUrl);
+                if (!response.ok) {
+                    throw new Error('スプレッドシートにアクセスできません。共有設定を確認してください。');
+                }
+
+                const csvText = await response.text();
+                rawData = parseCSV(csvText);
+                
+                processData();
+                createSummary();
+                updateDisplay();
+                hideLoading();
+                showResults();
+                
+                showError('', 'success', '✅ スプレッドシートから正常に読み込まれました');
+                
             } catch (error) {
-                showError('更新エラー: ' + error.message);
+                showError('スプレッドシート読み込みエラー: ' + error.message);
+                hideLoading();
             }
         }
 
-        // 接続設定
-        function setupConnection() {
-            document.getElementById('realtimeStatus').style.display = 'block';
-            document.getElementById('autoUpdateToggle').checked = false; // デフォルトは手動更新
-            updateConnectionInfo();
+        // カスタムスプレッドシートURL入力欄の表示
+        function showSpreadsheetUrlInput() {
+            const area = document.getElementById('customSpreadsheetArea');
+            area.style.display = area.style.display === 'none' ? 'block' : 'none';
+        }ConnectionInfo();
             updateLastUpdateTime();
         }
 
@@ -634,7 +672,7 @@
             document.getElementById('autoUpdateToggle').checked = false;
             
             // デフォルトスプレッドシートの場合は完全に切断しない
-            if (googleAppsScriptUrl !== 'https://script.google.com/macros/s/AKfycbysACXGzG-04hpQjIuTrSk0MIVLTPw9uWnWeGb-Z3yxSVcdsEYdSLNZ9VOknja4sWQ/exec') {
+            if (googleAppsScriptUrl !== 'https://script.google.com/macros/s/AKfycbyn5FDO8yyWB0XqzhLirPN3Zoc_pGDhZkTXGfjEIA9MHTloExjSBy2NPNb38SDbo5rz/exec') {
                 googleAppsScriptUrl = '';
             }
         }

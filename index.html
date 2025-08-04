@@ -527,11 +527,14 @@
 
                 // JSONP用のコールバック関数名を生成
                 const callbackName = 'jsonp_callback_' + Date.now();
+                let script; // スコープを関数全体に拡張
                 
                 // コールバック関数をグローバルに定義
                 window[callbackName] = function(result) {
                     // スクリプトタグを削除
-                    document.head.removeChild(script);
+                    if (script && document.head.contains(script)) {
+                        document.head.removeChild(script);
+                    }
                     delete window[callbackName];
                     
                     console.log('Google Apps Script からの応答:', result);
@@ -545,7 +548,6 @@
                             hideLoading();
                             showResults();
                             
-                            // 初回接続時はsetupConnectionを呼び出さない（すでに呼ばれているため）
                             resolve(result);
                         } else {
                             throw new Error(`スクリプトエラー: ${result.error || '不明なエラー'}\n詳細: ${result.message || 'なし'}`);
@@ -556,9 +558,15 @@
                     }
                 };
 
-                // エラーハンドリングを強化
+                // スクリプトタグを作成してJSONPリクエスト
+                script = document.createElement('script');
+                script.src = `${googleAppsScriptUrl}?callback=${callbackName}`;
+                
+                // エラーハンドリング
                 script.onerror = function() {
-                    document.head.removeChild(script);
+                    if (script && document.head.contains(script)) {
+                        document.head.removeChild(script);
+                    }
                     delete window[callbackName];
                     hideLoading();
                     reject(new Error(
@@ -571,9 +579,9 @@
                     ));
                 };
                 
-                // タイムアウト設定（10秒）
+                // タイムアウト設定（15秒）
                 setTimeout(() => {
-                    if (document.head.contains(script)) {
+                    if (script && document.head.contains(script)) {
                         document.head.removeChild(script);
                         delete window[callbackName];
                         hideLoading();
@@ -582,8 +590,9 @@
                             'ネットワーク環境を確認してから再度お試しください。'
                         ));
                     }
-                }, 10000);
+                }, 15000);
                 
+                // スクリプトタグをDOMに追加
                 document.head.appendChild(script);
             });
         }

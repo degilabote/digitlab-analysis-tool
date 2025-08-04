@@ -94,11 +94,33 @@
         </div>
 
         <div id="realtimeStatus" style="display: none; background: #e8f5e8; border: 1px solid #4caf50; border-radius: 5px; padding: 15px; margin: 20px 0;">
-            <h4 style="color: #2e7d32; margin: 0 0 10px 0;">🔄 リアルタイム連携中</h4>
-            <p style="margin: 0; color: #2e7d32;">スプレッドシートの変更が自動で反映されます</p>
-            <button onclick="stopRealtime()" style="background: #f44336; color: white; border: none; padding: 5px 10px; border-radius: 3px; margin-top: 10px; cursor: pointer;">
-                停止
-            </button>
+            <h4 style="color: #2e7d32; margin: 0 0 10px 0;">🔗 スプレッドシート連携中</h4>
+            <p style="margin: 0 0 10px 0; color: #2e7d32;" id="connectionInfo">接続済み</p>
+            
+            <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px;">
+                <button onclick="manualUpdate()" style="background: #2196f3; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">
+                    🔄 手動更新
+                </button>
+                <label style="display: flex; align-items: center; gap: 5px;">
+                    <input type="checkbox" id="autoUpdateToggle" onchange="toggleAutoUpdate()">
+                    自動更新を有効にする
+                </label>
+                <select id="updateInterval" onchange="updateAutoUpdateInterval()" style="padding: 5px; border: 1px solid #ddd; border-radius: 3px;">
+                    <option value="300000">5分ごと</option>
+                    <option value="900000">15分ごと</option>
+                    <option value="1800000">30分ごと</option>
+                    <option value="3600000" selected>1時間ごと</option>
+                    <option value="21600000">6時間ごと</option>
+                    <option value="86400000">24時間ごと</option>
+                </select>
+            </div>
+            
+            <div style="display: flex; gap: 10px;">
+                <button onclick="stopRealtime()" style="background: #f44336; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer;">
+                    接続解除
+                </button>
+                <span id="lastUpdateTime" style="font-size: 12px; color: #666; line-height: 2;"></span>
+            </div>
         </div>
 
         <div id="error" class="error" style="display: none;"></div>
@@ -399,10 +421,79 @@
             
             try {
                 await fetchFromGoogleAppsScript();
-                startRealtime();
+                setupConnection();
             } catch (error) {
                 showError('Google Apps Script連携エラー: ' + error.message);
             }
+        }
+
+        // 手動更新
+        async function manualUpdate() {
+            if (!googleAppsScriptUrl) {
+                showError('スプレッドシートが接続されていません');
+                return;
+            }
+
+            try {
+                await fetchFromGoogleAppsScript();
+                showError('', 'success', '✅ データを更新しました');
+                updateLastUpdateTime();
+            } catch (error) {
+                showError('更新エラー: ' + error.message);
+            }
+        }
+
+        // 接続設定
+        function setupConnection() {
+            document.getElementById('realtimeStatus').style.display = 'block';
+            document.getElementById('autoUpdateToggle').checked = false; // デフォルトは手動更新
+            updateConnectionInfo();
+            updateLastUpdateTime();
+        }
+
+        // 自動更新の切り替え
+        function toggleAutoUpdate() {
+            const isEnabled = document.getElementById('autoUpdateToggle').checked;
+            
+            if (isEnabled) {
+                startRealtime();
+            } else {
+                stopAutoUpdate();
+            }
+            
+            updateConnectionInfo();
+        }
+
+        // 自動更新間隔の変更
+        function updateAutoUpdateInterval() {
+            const isAutoEnabled = document.getElementById('autoUpdateToggle').checked;
+            if (isAutoEnabled) {
+                stopAutoUpdate();
+                startRealtime();
+            }
+        }
+
+        // 接続情報の更新
+        function updateConnectionInfo() {
+            const isAutoEnabled = document.getElementById('autoUpdateToggle').checked;
+            const interval = document.getElementById('updateInterval').value;
+            const intervalText = document.getElementById('updateInterval').selectedOptions[0].text;
+            
+            const infoElement = document.getElementById('connectionInfo');
+            if (isAutoEnabled) {
+                infoElement.textContent = `自動更新中（${intervalText}）`;
+                infoElement.style.color = '#2e7d32';
+            } else {
+                infoElement.textContent = '手動更新モード';
+                infoElement.style.color = '#1976d2';
+            }
+        }
+
+        // 最終更新時刻の表示
+        function updateLastUpdateTime() {
+            const now = new Date();
+            const timeString = now.toLocaleString('ja-JP');
+            document.getElementById('lastUpdateTime').textContent = `最終更新: ${timeString}`;
         }
 
         function fetchFromGoogleAppsScript() {
@@ -433,7 +524,7 @@
                             hideLoading();
                             showResults();
                             
-                            document.getElementById('realtimeStatus').style.display = 'block';
+                            // 初回接続時はsetupConnectionを呼び出さない（すでに呼ばれているため）
                             resolve(result);
                         } else {
                             throw new Error(result.error || '不明なエラー');
@@ -459,27 +550,40 @@
         }
 
         function startRealtime() {
-            // 30秒ごとに自動更新
+            // 既存の自動更新を停止
+            stopAutoUpdate();
+            
+            // 選択された間隔を取得
+            const interval = parseInt(document.getElementById('updateInterval').value);
+            
+            // 自動更新を開始
             realtimeInterval = setInterval(() => {
                 fetchFromGoogleAppsScript()
                     .then(() => {
-                        console.log('リアルタイム更新:', new Date().toLocaleTimeString());
+                        console.log('自動更新完了:', new Date().toLocaleTimeString());
+                        updateLastUpdateTime();
                     })
                     .catch((error) => {
-                        console.error('リアルタイム更新エラー:', error);
-                        // エラーが続く場合は停止
-                        showError('リアルタイム更新でエラーが発生しました: ' + error.message);
+                        console.error('自動更新エラー:', error);
+                        showError('自動更新でエラーが発生しました: ' + error.message);
                     });
-            }, 30000);
+            }, interval);
+            
+            console.log(`自動更新開始: ${interval / 1000 / 60}分間隔`);
         }
 
-        function stopRealtime() {
+        function stopAutoUpdate() {
             if (realtimeInterval) {
                 clearInterval(realtimeInterval);
                 realtimeInterval = null;
             }
+        }
+
+        function stopRealtime() {
+            stopAutoUpdate();
             document.getElementById('realtimeStatus').style.display = 'none';
             googleAppsScriptUrl = '';
+            document.getElementById('autoUpdateToggle').checked = false;
         }
 
         function processData() {

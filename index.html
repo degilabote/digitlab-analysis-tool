@@ -1,0 +1,821 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>デジラボユニット払出し票分析</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        .header { text-align: center; margin-bottom: 30px; }
+        .header h1 { color: #333; font-size: 2.5em; margin-bottom: 10px; }
+        .upload-area { background: white; border: 2px dashed #ccc; border-radius: 10px; padding: 40px; text-align: center; margin-bottom: 30px; }
+        .upload-area.drag-over { border-color: #007bff; background: #f0f8ff; }
+        .file-input { display: none; }
+        .upload-btn { background: #007bff; color: white; padding: 12px 24px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
+        .upload-btn:hover { background: #0056b3; }
+        .summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); text-align: center; }
+        .card h3 { color: #666; font-size: 14px; margin-bottom: 10px; }
+        .card .value { font-size: 24px; font-weight: bold; color: #007bff; }
+        .quota-section { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 30px; }
+        .quota-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-top: 20px; }
+        .quota-card { border: 1px solid #ddd; border-radius: 8px; padding: 20px; }
+        .quota-card h4 { margin-bottom: 15px; color: #333; }
+        .progress-bar { width: 100%; height: 8px; background: #f0f0f0; border-radius: 4px; margin: 10px 0; }
+        .progress-fill { height: 100%; border-radius: 4px; transition: width 0.3s ease; }
+        .progress-green { background: #28a745; }
+        .progress-yellow { background: #ffc107; }
+        .progress-red { background: #dc3545; }
+        .individual-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-top: 20px; }
+        .individual-card { border: 1px solid #ddd; border-radius: 8px; padding: 20px; }
+        .month-detail { margin-bottom: 15px; font-size: 12px; }
+        .month-progress { width: 100%; height: 4px; background: #f0f0f0; border-radius: 2px; margin: 5px 0; }
+        .filters { background: white; padding: 20px; border-radius: 10px; margin-bottom: 30px; }
+        .filter-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; }
+        .filter-group label { display: block; margin-bottom: 5px; font-weight: 500; }
+        .filter-group select { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
+        .charts-section { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-bottom: 30px; }
+        .chart-container { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .chart-container h3 { margin-bottom: 20px; color: #333; }
+        .chart-container canvas { max-height: 350px; }
+        .data-table { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        .table th, .table td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+        .table th { background: #f8f9fa; font-weight: 600; }
+        .table tr:hover { background: #f8f9fa; }
+        .error { background: #f8d7da; color: #721c24; padding: 15px; border-radius: 5px; margin: 20px 0; }
+        .loading { text-align: center; padding: 40px; color: #666; }
+        .text-red { color: #dc3545; }
+        .text-blue { color: #007bff; }
+        .text-green { color: #28a745; }
+        .text-purple { color: #6f42c1; }
+        .text-orange { color: #fd7e14; }
+        .text-teal { color: #20c997; }
+        @media (max-width: 768px) {
+            .charts-section { grid-template-columns: 1fr; }
+            .summary-cards { grid-template-columns: 1fr 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 デジラボユニット払出し票分析</h1>
+            <p>Excel ファイルをアップロードして分析を開始してください</p>
+        </div>
+
+        <div class="upload-area" id="uploadArea">
+            <input type="file" id="fileInput" class="file-input" accept=".xlsx,.xls">
+            <div>
+                <button class="upload-btn" onclick="document.getElementById('fileInput').click()">
+                    📁 Excel ファイルを選択
+                </button>
+                <p style="margin-top: 15px; color: #666;">
+                    または、ここにファイルをドラッグ&ドロップしてください
+                </p>
+            </div>
+        </div>
+
+        <div id="error" class="error" style="display: none;"></div>
+        <div id="loading" class="loading" style="display: none;">読み込み中...</div>
+
+        <div id="results" style="display: none;">
+            <!-- サマリーカード -->
+            <div class="summary-cards">
+                <div class="card">
+                    <h3>総金額</h3>
+                    <div class="value" id="totalAmount">¥0</div>
+                </div>
+                <div class="card">
+                    <h3>総件数</h3>
+                    <div class="value" id="totalCount">0件</div>
+                </div>
+                <div class="card">
+                    <h3>申請者数</h3>
+                    <div class="value" id="userCount">0名</div>
+                </div>
+                <div class="card">
+                    <h3>外部発注</h3>
+                    <div class="value text-red" id="externalAmount">¥0</div>
+                </div>
+                <div class="card">
+                    <h3>デジラボ実績</h3>
+                    <div class="value text-blue" id="digitalLabAmount">¥0</div>
+                    <small id="digitalLabAverage">月平均: ¥0</small>
+                </div>
+            </div>
+
+            <!-- デジラボノルマ達成状況 -->
+            <div class="quota-section">
+                <h2>📊 デジラボ月別ノルマ達成状況（月ノルマ: ¥3,400,000）</h2>
+                <div class="quota-grid" id="quotaGrid"></div>
+                
+                <div style="margin-top: 30px; padding: 20px; background: #f8f9fa; border-radius: 8px;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; text-align: center;">
+                        <div>
+                            <h4>4ヶ月総実績</h4>
+                            <div style="font-size: 20px; font-weight: bold; color: #007bff;" id="totalDigitalLab">¥0</div>
+                        </div>
+                        <div>
+                            <h4>4ヶ月総ノルマ</h4>
+                            <div style="font-size: 20px; font-weight: bold;">¥13,600,000</div>
+                        </div>
+                        <div>
+                            <h4>全体達成率</h4>
+                            <div style="font-size: 20px; font-weight: bold;" id="overallAchievement">0%</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 個人別目標達成状況 -->
+            <div class="quota-section">
+                <h2>👤 個人別月額目標達成状況</h2>
+                <div class="individual-grid" id="individualGrid"></div>
+            </div>
+
+            <!-- フィルター -->
+            <div class="filters">
+                <h3>🔍 フィルター</h3>
+                <div class="filter-grid">
+                    <div class="filter-group">
+                        <label>申請者</label>
+                        <select id="userFilter">
+                            <option value="全員">全員</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label>月</label>
+                        <select id="monthFilter">
+                            <option value="全月">全月</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label>プロジェクト</label>
+                        <select id="titleFilter">
+                            <option value="全タイトル">全プロジェクト</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label>発注区分</label>
+                        <select id="orderTypeFilter">
+                            <option value="全区分">全区分</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- チャート -->
+            <div class="charts-section">
+                <div class="chart-container">
+                    <h3>申請者別金額</h3>
+                    <canvas id="barChart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <h3>発注区分別割合</h3>
+                    <canvas id="pieChart"></canvas>
+                </div>
+            </div>
+
+            <!-- データテーブル -->
+            <div class="data-table">
+                <h3>📋 詳細データ</h3>
+                <div style="overflow-x: auto;">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>日付</th>
+                                <th>申請者</th>
+                                <th>金額</th>
+                                <th>摘要</th>
+                                <th>タイトル</th>
+                                <th>発注区分</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dataTableBody"></tbody>
+                    </table>
+                </div>
+                <p id="tableInfo" style="margin-top: 10px; color: #666; font-size: 14px;"></p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // グローバル変数
+        let rawData = [];
+        let processedData = [];
+        let summary = {};
+        let barChart, pieChart;
+
+        // 個人別月額目標
+        const INDIVIDUAL_TARGETS = {
+            '向　克明': 500000,
+            '後藤　和典': 1000000,
+            '一木　紀二': 750000,
+            '佐々木　翔梧': 600000,
+            '坂本　聖弥': 500000,
+            '小池　幸司': 250000
+        };
+
+        const MONTHLY_QUOTA = 3400000;
+
+        // ファイルアップロード処理
+        document.getElementById('fileInput').addEventListener('change', handleFileSelect);
+        
+        // ドラッグ&ドロップ処理
+        const uploadArea = document.getElementById('uploadArea');
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('drag-over');
+        });
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('drag-over');
+        });
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('drag-over');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFile(files[0]);
+            }
+        });
+
+        function handleFileSelect(e) {
+            const file = e.target.files[0];
+            if (file) {
+                handleFile(file);
+            }
+        }
+
+        function handleFile(file) {
+            showLoading();
+            hideError();
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = e.target.result;
+                    const workbook = XLSX.read(data, { type: 'binary' });
+                    const sheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[sheetName];
+                    rawData = XLSX.utils.sheet_to_json(worksheet);
+                    
+                    processData();
+                    createSummary();
+                    updateDisplay();
+                    hideLoading();
+                    showResults();
+                } catch (error) {
+                    showError('ファイル読み込みエラー: ' + error.message);
+                    hideLoading();
+                }
+            };
+            reader.readAsBinaryString(file);
+        }
+
+        function processData() {
+            processedData = rawData.map((row, index) => {
+                let date = null;
+                const dateField = row['申請日'];
+                
+                if (dateField) {
+                    if (typeof dateField === 'number') {
+                        date = new Date((dateField - 25569) * 86400 * 1000);
+                    } else if (typeof dateField === 'string') {
+                        date = new Date(dateField);
+                    }
+                }
+
+                return {
+                    id: index,
+                    date: date,
+                    month: date ? `${date.getFullYear()}年${date.getMonth() + 1}月` : '不明',
+                    applicant: row['申請者'] || '不明',
+                    amount: parseFloat(row['税込金額'] || 0),
+                    summary: row['摘要'] || '不明',
+                    title: row['タイトル'] || '不明',
+                    orderType: row['発注区分'] || '不明'
+                };
+            });
+        }
+
+        function createSummary() {
+            const userSummary = {};
+            const monthSummary = {};
+            const orderTypeSummary = {};
+            const titleSummary = {};
+
+            processedData.forEach(item => {
+                // 申請者別
+                if (!userSummary[item.applicant]) {
+                    userSummary[item.applicant] = { 
+                        total: 0, 
+                        months: {}, 
+                        orderTypes: {},
+                        titles: {}
+                    };
+                }
+                userSummary[item.applicant].total += item.amount;
+
+                // 月別
+                if (!userSummary[item.applicant].months[item.month]) {
+                    userSummary[item.applicant].months[item.month] = 0;
+                }
+                userSummary[item.applicant].months[item.month] += item.amount;
+
+                // 発注区分別
+                if (!userSummary[item.applicant].orderTypes[item.orderType]) {
+                    userSummary[item.applicant].orderTypes[item.orderType] = 0;
+                }
+                userSummary[item.applicant].orderTypes[item.orderType] += item.amount;
+
+                // 全体集計
+                if (!monthSummary[item.month]) {
+                    monthSummary[item.month] = 0;
+                }
+                monthSummary[item.month] += item.amount;
+
+                if (!orderTypeSummary[item.orderType]) {
+                    orderTypeSummary[item.orderType] = 0;
+                }
+                orderTypeSummary[item.orderType] += item.amount;
+
+                if (!titleSummary[item.title]) {
+                    titleSummary[item.title] = 0;
+                }
+                titleSummary[item.title] += item.amount;
+            });
+
+            summary = {
+                users: userSummary,
+                months: monthSummary,
+                orderTypes: orderTypeSummary,
+                titles: titleSummary,
+                totalAmount: processedData.reduce((sum, item) => sum + item.amount, 0),
+                totalCount: processedData.length
+            };
+        }
+
+        function updateDisplay() {
+            updateSummaryCards();
+            updateQuotaSection();
+            updateIndividualSection();
+            updateFilters();
+            updateCharts();
+            updateDataTable();
+        }
+
+        function updateSummaryCards() {
+            const digitalLabAmount = summary.totalAmount - (summary.orderTypes['開発'] || 0) * 2;
+            
+            document.getElementById('totalAmount').textContent = '¥' + summary.totalAmount.toLocaleString();
+            document.getElementById('totalCount').textContent = summary.totalCount + '件';
+            document.getElementById('userCount').textContent = Object.keys(summary.users).length + '名';
+            document.getElementById('externalAmount').textContent = '¥' + (summary.orderTypes['外部発注'] || 0).toLocaleString();
+            document.getElementById('digitalLabAmount').textContent = '¥' + digitalLabAmount.toLocaleString();
+            document.getElementById('digitalLabAverage').textContent = '月平均: ¥' + Math.round(digitalLabAmount / 4).toLocaleString();
+        }
+
+        function updateQuotaSection() {
+            const digitalLabMonthly = calculateDigitalLabMonthly();
+            const quotaGrid = document.getElementById('quotaGrid');
+            quotaGrid.innerHTML = '';
+
+            digitalLabMonthly.forEach(monthData => {
+                const card = document.createElement('div');
+                card.className = 'quota-card';
+                
+                const progressClass = monthData.achievementRate >= 100 ? 'progress-green' : 
+                                    monthData.achievementRate >= 80 ? 'progress-yellow' : 'progress-red';
+                const statusIcon = monthData.achievementRate >= 100 ? '✅' : 
+                                 monthData.achievementRate >= 80 ? '⚠️' : '❌';
+
+                card.innerHTML = `
+                    <h4>${monthData.month}</h4>
+                    <div style="font-size: 18px; font-weight: bold; color: #007bff; margin-bottom: 10px;">
+                        ¥${monthData.amount.toLocaleString()}
+                    </div>
+                    <div style="font-size: 12px; color: #666; margin-bottom: 10px;">
+                        ノルマ: ¥${monthData.quota.toLocaleString()}
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill ${progressClass}" style="width: ${Math.min(monthData.achievementRate, 100)}%"></div>
+                    </div>
+                    <div style="font-weight: bold; margin-top: 5px;">
+                        ${monthData.achievementRate.toFixed(1)}% ${statusIcon}
+                    </div>
+                    <div style="font-size: 12px; margin-top: 5px; color: ${monthData.difference >= 0 ? '#28a745' : '#dc3545'};">
+                        ${monthData.difference >= 0 ? '+' : ''}¥${monthData.difference.toLocaleString()}
+                    </div>
+                `;
+                quotaGrid.appendChild(card);
+            });
+
+            // 全体達成率更新
+            const totalDigitalLab = summary.totalAmount - (summary.orderTypes['開発'] || 0) * 2;
+            const overallRate = (totalDigitalLab / (MONTHLY_QUOTA * 4)) * 100;
+            
+            document.getElementById('totalDigitalLab').textContent = '¥' + totalDigitalLab.toLocaleString();
+            document.getElementById('overallAchievement').textContent = overallRate.toFixed(1) + '%';
+            document.getElementById('overallAchievement').style.color = 
+                overallRate >= 100 ? '#28a745' : overallRate >= 80 ? '#ffc107' : '#dc3545';
+        }
+
+        function updateIndividualSection() {
+            const individualMonthly = calculateIndividualMonthly();
+            const individualGrid = document.getElementById('individualGrid');
+            individualGrid.innerHTML = '';
+
+            Object.entries(individualMonthly).forEach(([applicant, data]) => {
+                const card = document.createElement('div');
+                card.className = 'individual-card';
+
+                let monthsHtml = '';
+                data.months.forEach(monthData => {
+                    const progressClass = monthData.achievementRate >= 100 ? 'progress-green' : 
+                                        monthData.achievementRate >= 80 ? 'progress-yellow' : 'progress-red';
+                    
+                    monthsHtml += `
+                        <div class="month-detail">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                                <span style="font-weight: 500;">${monthData.month}</span>
+                                <span style="color: ${monthData.achievementRate >= 100 ? '#28a745' : monthData.achievementRate >= 80 ? '#ffc107' : '#dc3545'};">
+                                    ${monthData.achievementRate.toFixed(0)}%
+                                </span>
+                            </div>
+                            <div class="month-progress">
+                                <div class="progress-fill ${progressClass}" style="width: ${Math.min(monthData.achievementRate, 100)}%"></div>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; font-size: 11px; color: #666;">
+                                <span>¥${monthData.amount.toLocaleString()}</span>
+                                <span style="color: ${monthData.difference >= 0 ? '#28a745' : '#dc3545'};">
+                                    ${monthData.difference >= 0 ? '+' : ''}¥${monthData.difference.toLocaleString()}
+                                </span>
+                            </div>
+                        </div>
+                    `;
+                });
+
+                const overallColor = data.overallAchievementRate >= 100 ? '#28a745' : 
+                                   data.overallAchievementRate >= 80 ? '#ffc107' : '#dc3545';
+                const overallIcon = data.overallAchievementRate >= 100 ? '✅' : 
+                                  data.overallAchievementRate >= 80 ? '⚠️' : '❌';
+
+                card.innerHTML = `
+                    <h4 style="margin-bottom: 15px; color: #333;">${applicant}</h4>
+                    <div style="margin-bottom: 15px;">
+                        <div style="font-size: 14px; color: #666;">月目標: ¥${data.target.toLocaleString()}</div>
+                        <div style="font-size: 14px; font-weight: 500; color: #007bff;">4ヶ月実績: ¥${data.totalAmount.toLocaleString()}</div>
+                        <div style="font-size: 14px; font-weight: bold; color: ${overallColor};">
+                            全体達成率: ${data.overallAchievementRate.toFixed(1)}% ${overallIcon}
+                        </div>
+                    </div>
+                    ${monthsHtml}
+                `;
+                individualGrid.appendChild(card);
+            });
+        }
+
+        function calculateDigitalLabMonthly() {
+            const monthlyData = {};
+            
+            processedData.forEach(item => {
+                if (!monthlyData[item.month]) {
+                    monthlyData[item.month] = 0;
+                }
+                if (item.orderType === '開発') {
+                    monthlyData[item.month] -= item.amount;
+                } else {
+                    monthlyData[item.month] += item.amount;
+                }
+            });
+
+            return Object.entries(monthlyData).map(([month, amount]) => ({
+                month,
+                amount,
+                quota: MONTHLY_QUOTA,
+                achievementRate: (amount / MONTHLY_QUOTA) * 100,
+                difference: amount - MONTHLY_QUOTA
+            }));
+        }
+
+        function calculateIndividualMonthly() {
+            const individualData = {};
+            
+            processedData.forEach(item => {
+                if (!individualData[item.applicant]) {
+                    individualData[item.applicant] = {};
+                }
+                if (!individualData[item.applicant][item.month]) {
+                    individualData[item.applicant][item.month] = 0;
+                }
+                
+                if (item.orderType === '開発') {
+                    individualData[item.applicant][item.month] -= item.amount;
+                } else {
+                    individualData[item.applicant][item.month] += item.amount;
+                }
+            });
+
+            const result = {};
+            Object.entries(individualData).forEach(([applicant, months]) => {
+                const target = INDIVIDUAL_TARGETS[applicant] || 0;
+                result[applicant] = {
+                    target,
+                    months: Object.entries(months).map(([month, amount]) => ({
+                        month,
+                        amount,
+                        target,
+                        achievementRate: target > 0 ? (amount / target) * 100 : 0,
+                        difference: amount - target
+                    })),
+                    totalAmount: Object.values(months).reduce((sum, amount) => sum + amount, 0),
+                    totalTarget: target * 4,
+                    overallAchievementRate: target > 0 ? (Object.values(months).reduce((sum, amount) => sum + amount, 0) / (target * 4)) * 100 : 0
+                };
+            });
+
+            return result;
+        }
+
+        function updateFilters() {
+            // フィルター更新処理
+            const userFilter = document.getElementById('userFilter');
+            const monthFilter = document.getElementById('monthFilter');
+            const titleFilter = document.getElementById('titleFilter');
+            const orderTypeFilter = document.getElementById('orderTypeFilter');
+
+            userFilter.innerHTML = '<option value="全員">全員</option>';
+            Object.keys(summary.users).forEach(user => {
+                const option = document.createElement('option');
+                option.value = user;
+                option.textContent = user;
+                userFilter.appendChild(option);
+            });
+
+            monthFilter.innerHTML = '<option value="全月">全月</option>';
+            Object.keys(summary.months).sort().forEach(month => {
+                const option = document.createElement('option');
+                option.value = month;
+                option.textContent = month;
+                monthFilter.appendChild(option);
+            });
+
+            titleFilter.innerHTML = '<option value="全タイトル">全プロジェクト</option>';
+            Object.keys(summary.titles).sort().forEach(title => {
+                const option = document.createElement('option');
+                option.value = title;
+                option.textContent = title;
+                titleFilter.appendChild(option);
+            });
+
+            orderTypeFilter.innerHTML = '<option value="全区分">全区分</option>';
+            Object.keys(summary.orderTypes).sort().forEach(orderType => {
+                const option = document.createElement('option');
+                option.value = orderType;
+                option.textContent = orderType;
+                orderTypeFilter.appendChild(option);
+            });
+
+            // フィルター変更イベント
+            [userFilter, monthFilter, titleFilter, orderTypeFilter].forEach(filter => {
+                filter.addEventListener('change', () => {
+                    updateCharts();
+                    updateDataTable();
+                });
+            });
+        }
+
+        function getFilteredData() {
+            const userFilter = document.getElementById('userFilter').value;
+            const monthFilter = document.getElementById('monthFilter').value;
+            const titleFilter = document.getElementById('titleFilter').value;
+            const orderTypeFilter = document.getElementById('orderTypeFilter').value;
+
+            return processedData.filter(item => {
+                const userMatch = userFilter === '全員' || item.applicant === userFilter;
+                const monthMatch = monthFilter === '全月' || item.month === monthFilter;
+                const titleMatch = titleFilter === '全タイトル' || item.title === titleFilter;
+                const orderTypeMatch = orderTypeFilter === '全区分' || item.orderType === orderTypeFilter;
+                return userMatch && monthMatch && titleMatch && orderTypeMatch;
+            });
+        }
+
+        function updateCharts() {
+            updateBarChart();
+            updatePieChart();
+        }
+
+        function updateBarChart() {
+            const filtered = getFilteredData();
+            const userData = {};
+            
+            filtered.forEach(item => {
+                if (!userData[item.applicant]) {
+                    userData[item.applicant] = 0;
+                }
+                userData[item.applicant] += item.amount;
+            });
+
+            // データを金額でソート（降順）
+            const sortedData = Object.entries(userData)
+                .sort(([,a], [,b]) => b - a);
+            
+            const labels = sortedData.map(([name]) => name);
+            const data = sortedData.map(([,amount]) => amount);
+
+            if (barChart) {
+                barChart.destroy();
+            }
+
+            const ctx = document.getElementById('barChart').getContext('2d');
+            barChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: '金額',
+                        data: data,
+                        backgroundColor: [
+                            'rgba(54, 162, 235, 0.8)',
+                            'rgba(255, 99, 132, 0.8)',
+                            'rgba(75, 192, 192, 0.8)',
+                            'rgba(255, 205, 86, 0.8)',
+                            'rgba(153, 102, 255, 0.8)',
+                            'rgba(255, 159, 64, 0.8)'
+                        ],
+                        borderColor: [
+                            'rgba(54, 162, 235, 1)',
+                            'rgba(255, 99, 132, 1)',
+                            'rgba(75, 192, 192, 1)',
+                            'rgba(255, 205, 86, 1)',
+                            'rgba(153, 102, 255, 1)',
+                            'rgba(255, 159, 64, 1)'
+                        ],
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return '¥' + (value / 1000000).toFixed(1) + 'M';
+                                }
+                            }
+                        },
+                        x: {
+                            ticks: {
+                                maxRotation: 45,
+                                minRotation: 0
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return '¥' + context.parsed.y.toLocaleString();
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updatePieChart() {
+            const filtered = getFilteredData();
+            const orderTypeData = {};
+            
+            filtered.forEach(item => {
+                if (!orderTypeData[item.orderType]) {
+                    orderTypeData[item.orderType] = 0;
+                }
+                orderTypeData[item.orderType] += item.amount;
+            });
+
+            const labels = Object.keys(orderTypeData);
+            const data = Object.values(orderTypeData);
+            const colors = [
+                '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', 
+                '#9966FF', '#FF9F40', '#FF6384', '#36A2EB'
+            ];
+
+            if (pieChart) {
+                pieChart.destroy();
+            }
+
+            const ctx = document.getElementById('pieChart').getContext('2d');
+            pieChart = new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: data,
+                        backgroundColor: colors.slice(0, labels.length),
+                        borderWidth: 2,
+                        borderColor: '#fff'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const percentage = ((context.parsed / total) * 100).toFixed(1);
+                                    return context.label + ': ¥' + context.parsed.toLocaleString() + ' (' + percentage + '%)';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateDataTable() {
+            const filtered = getFilteredData();
+            const tbody = document.getElementById('dataTableBody');
+            const tableInfo = document.getElementById('tableInfo');
+            
+            tbody.innerHTML = '';
+            
+            // 最初の50件のみ表示
+            const displayData = filtered.slice(0, 50);
+            
+            displayData.forEach((item, index) => {
+                const row = document.createElement('tr');
+                const orderTypeClass = getOrderTypeClass(item.orderType);
+                
+                row.innerHTML = `
+                    <td>${item.month}</td>
+                    <td>${item.applicant}</td>
+                    <td style="text-align: right; ${item.amount < 0 ? 'color: #dc3545;' : ''}">
+                        ¥${item.amount.toLocaleString()}
+                    </td>
+                    <td>${item.summary}</td>
+                    <td>${item.title}</td>
+                    <td style="text-align: center; font-weight: bold;" class="${orderTypeClass}">
+                        ${item.orderType}
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+
+            tableInfo.textContent = filtered.length > 50 ? 
+                `最初の50件を表示中（全${filtered.length}件）` : 
+                `全${filtered.length}件を表示`;
+        }
+
+        function getOrderTypeClass(orderType) {
+            switch(orderType) {
+                case '外部発注': return 'text-red';
+                case '社内': return 'text-blue';
+                case 'デジラボ': return 'text-green';
+                case '開発': return 'text-purple';
+                case '値引き': return 'text-orange';
+                case 'Ｐ粗利実績': return 'text-teal';
+                default: return '';
+            }
+        }
+
+        function showLoading() {
+            document.getElementById('loading').style.display = 'block';
+        }
+
+        function hideLoading() {
+            document.getElementById('loading').style.display = 'none';
+        }
+
+        function showError(message) {
+            const errorDiv = document.getElementById('error');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+        }
+
+        function hideError() {
+            document.getElementById('error').style.display = 'none';
+        }
+
+        function showResults() {
+            document.getElementById('results').style.display = 'block';
+        }
+    </script>
+</body>
+</html>

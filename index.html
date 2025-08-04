@@ -386,9 +386,13 @@
             }
         }
 
-        // Google Apps Script経由でリアルタイム連携
+        // Google Apps Script経由でリアルタイム連携（JSONP対応）
         async function loadFromGoogleAppsScript() {
-            const scriptUrl = prompt('Google Apps ScriptのWeb App URLを入力してください:');
+            const scriptUrl = prompt(
+                'Google Apps ScriptのWeb App URLを入力してください:\n\n' + 
+                '例: https://script.google.com/macros/s/XXXXX/exec\n\n' +
+                '※ デプロイ時は「アクセスできるユーザー: 全員（匿名ユーザーを含む）」に設定してください'
+            );
             if (!scriptUrl) return;
 
             googleAppsScriptUrl = scriptUrl;
@@ -401,43 +405,71 @@
             }
         }
 
-        async function fetchFromGoogleAppsScript() {
-            if (!googleAppsScriptUrl) return;
-
-            showLoading();
-            hideError();
-
-            try {
-                const response = await fetch(googleAppsScriptUrl);
-                const result = await response.json();
-                
-                if (result.success) {
-                    rawData = result.data;
-                    processData();
-                    createSummary();
-                    updateDisplay();
-                    hideLoading();
-                    showResults();
-                    
-                    document.getElementById('realtimeStatus').style.display = 'block';
-                } else {
-                    throw new Error(result.error || '不明なエラー');
+        function fetchFromGoogleAppsScript() {
+            return new Promise((resolve, reject) => {
+                if (!googleAppsScriptUrl) {
+                    reject(new Error('Google Apps Script URLが設定されていません'));
+                    return;
                 }
-            } catch (error) {
-                showError('データ取得エラー: ' + error.message);
-                hideLoading();
-            }
+
+                showLoading();
+                hideError();
+
+                // JSONP用のコールバック関数名を生成
+                const callbackName = 'jsonp_callback_' + Date.now();
+                
+                // コールバック関数をグローバルに定義
+                window[callbackName] = function(result) {
+                    // スクリプトタグを削除
+                    document.head.removeChild(script);
+                    delete window[callbackName];
+                    
+                    try {
+                        if (result.success) {
+                            rawData = result.data;
+                            processData();
+                            createSummary();
+                            updateDisplay();
+                            hideLoading();
+                            showResults();
+                            
+                            document.getElementById('realtimeStatus').style.display = 'block';
+                            resolve(result);
+                        } else {
+                            throw new Error(result.error || '不明なエラー');
+                        }
+                    } catch (error) {
+                        hideLoading();
+                        reject(error);
+                    }
+                };
+
+                // スクリプトタグを作成してJSONPリクエスト
+                const script = document.createElement('script');
+                script.src = `${googleAppsScriptUrl}?callback=${callbackName}`;
+                script.onerror = function() {
+                    document.head.removeChild(script);
+                    delete window[callbackName];
+                    hideLoading();
+                    reject(new Error('スクリプトの読み込みに失敗しました。URLを確認してください。'));
+                };
+                
+                document.head.appendChild(script);
+            });
         }
 
         function startRealtime() {
             // 30秒ごとに自動更新
-            realtimeInterval = setInterval(async () => {
-                try {
-                    await fetchFromGoogleAppsScript();
-                    console.log('リアルタイム更新:', new Date().toLocaleTimeString());
-                } catch (error) {
-                    console.error('リアルタイム更新エラー:', error);
-                }
+            realtimeInterval = setInterval(() => {
+                fetchFromGoogleAppsScript()
+                    .then(() => {
+                        console.log('リアルタイム更新:', new Date().toLocaleTimeString());
+                    })
+                    .catch((error) => {
+                        console.error('リアルタイム更新エラー:', error);
+                        // エラーが続く場合は停止
+                        showError('リアルタイム更新でエラーが発生しました: ' + error.message);
+                    });
             }, 30000);
         }
 

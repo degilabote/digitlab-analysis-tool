@@ -48,6 +48,7 @@
         .table th { background: #f8f9fa; font-weight: 600; }
         .table tr:hover { background: #f8f9fa; }
         .error { background: #f8d7da; color: #721c24; padding: 15px; border-radius: 5px; margin: 20px 0; }
+        .success { background: #d4edda; color: #155724; padding: 15px; border-radius: 5px; margin: 20px 0; }
         .loading { text-align: center; padding: 40px; color: #666; }
         .text-red { color: #dc3545; }
         .text-blue { color: #007bff; }
@@ -107,6 +108,7 @@
         </div>
 
         <div id="error" class="error" style="display: none;"></div>
+        <div id="success" class="success" style="display: none;"></div>
         <div id="loading" class="loading" style="display: none;">読み込み中...</div>
 
         <div id="results" style="display: none;">
@@ -361,7 +363,7 @@
                 hideLoading();
                 showResults();
                 
-                showError('', 'success', '✅ デジラボスプレッドシートから正常に読み込まれました');
+                showSuccess('✅ デジラボスプレッドシートから正常に読み込まれました');
                 
             } catch (error) {
                 showError('スプレッドシート読み込みエラー: ' + error.message);
@@ -405,7 +407,7 @@
                 hideLoading();
                 showResults();
                 
-                showError('', 'success', '✅ スプレッドシートから正常に読み込まれました');
+                showSuccess('✅ スプレッドシートから正常に読み込まれました');
                 
             } catch (error) {
                 showError('スプレッドシート読み込みエラー: ' + error.message);
@@ -570,6 +572,21 @@
             document.getElementById('digitalLabAverage').textContent = '月平均: ¥' + Math.round(digitalLabAmount / 4).toLocaleString();
         }
 
+        function calculateDigitalLabMonthly() {
+            const months = ['2025年4月', '2025年5月', '2025年6月', '2025年7月'];
+            return months.map(month => {
+                const monthAmount = (summary.months[month] || 0) - ((summary.orderTypes['開発'] || 0) / 4);
+                const achievementRate = (monthAmount / MONTHLY_QUOTA) * 100;
+                return {
+                    month: month,
+                    amount: monthAmount,
+                    quota: MONTHLY_QUOTA,
+                    achievementRate: achievementRate,
+                    difference: monthAmount - MONTHLY_QUOTA
+                };
+            });
+        }
+
         function updateQuotaSection() {
             const digitalLabMonthly = calculateDigitalLabMonthly();
             const quotaGrid = document.getElementById('quotaGrid');
@@ -610,3 +627,298 @@
             
             document.getElementById('totalDigitalLab').textContent = '¥' + totalDigitalLab.toLocaleString();
             document.getElementById('overallAchievement').textContent = overallRate.toFixed(1) + '%';
+            
+            const overallElement = document.getElementById('overallAchievement');
+            overallElement.style.color = overallRate >= 100 ? '#28a745' : overallRate >= 80 ? '#ffc107' : '#dc3545';
+        }
+
+        function updateIndividualSection() {
+            const individualGrid = document.getElementById('individualGrid');
+            individualGrid.innerHTML = '';
+
+            Object.keys(INDIVIDUAL_TARGETS).forEach(name => {
+                const target = INDIVIDUAL_TARGETS[name];
+                const userData = summary.users[name] || { total: 0, months: {} };
+                
+                const card = document.createElement('div');
+                card.className = 'individual-card';
+                
+                const totalAmount = userData.total - ((userData.orderTypes && userData.orderTypes['開発']) || 0) * 2;
+                const monthlyAverage = totalAmount / 4;
+                const achievementRate = (monthlyAverage / target) * 100;
+                
+                const months = ['2025年4月', '2025年5月', '2025年6月', '2025年7月'];
+                let monthsHtml = '';
+                
+                months.forEach(month => {
+                    const monthAmount = userData.months[month] || 0;
+                    const monthRate = (monthAmount / target) * 100;
+                    const monthProgressClass = monthRate >= 100 ? 'progress-green' : 
+                                             monthRate >= 80 ? 'progress-yellow' : 'progress-red';
+                    
+                    monthsHtml += `
+                        <div class="month-detail">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
+                                <span style="font-weight: bold;">${month}</span>
+                                <span>¥${monthAmount.toLocaleString()}</span>
+                            </div>
+                            <div class="month-progress">
+                                <div class="progress-fill ${monthProgressClass}" style="width: ${Math.min(monthRate, 100)}%"></div>
+                            </div>
+                            <div style="font-size: 10px; color: #666;">
+                                ${monthRate.toFixed(1)}% (目標: ¥${target.toLocaleString()})
+                            </div>
+                        </div>
+                    `;
+                });
+
+                const overallProgressClass = achievementRate >= 100 ? 'progress-green' : 
+                                           achievementRate >= 80 ? 'progress-yellow' : 'progress-red';
+
+                card.innerHTML = `
+                    <h4>${name}</h4>
+                    <div style="margin-bottom: 15px;">
+                        <div style="font-size: 16px; font-weight: bold; color: #007bff;">
+                            総額: ¥${totalAmount.toLocaleString()}
+                        </div>
+                        <div style="font-size: 14px; color: #666;">
+                            月平均: ¥${monthlyAverage.toLocaleString()} (${achievementRate.toFixed(1)}%)
+                        </div>
+                        <div class="progress-bar" style="margin: 10px 0;">
+                            <div class="progress-fill ${overallProgressClass}" style="width: ${Math.min(achievementRate, 100)}%"></div>
+                        </div>
+                    </div>
+                    ${monthsHtml}
+                `;
+                
+                individualGrid.appendChild(card);
+            });
+        }
+
+        function updateFilters() {
+            updateFilterOptions('userFilter', Object.keys(summary.users), '全員');
+            updateFilterOptions('monthFilter', Object.keys(summary.months), '全月');
+            updateFilterOptions('titleFilter', Object.keys(summary.titles), '全タイトル');
+            updateFilterOptions('orderTypeFilter', Object.keys(summary.orderTypes), '全区分');
+
+            // フィルターイベントリスナーを追加
+            ['userFilter', 'monthFilter', 'titleFilter', 'orderTypeFilter'].forEach(filterId => {
+                document.getElementById(filterId).addEventListener('change', applyFilters);
+            });
+        }
+
+        function updateFilterOptions(filterId, options, defaultOption) {
+            const select = document.getElementById(filterId);
+            const currentValue = select.value;
+            
+            select.innerHTML = `<option value="${defaultOption}">${defaultOption}</option>`;
+            
+            options.sort().forEach(option => {
+                const optionElement = document.createElement('option');
+                optionElement.value = option;
+                optionElement.textContent = option;
+                select.appendChild(optionElement);
+            });
+            
+            if (options.includes(currentValue)) {
+                select.value = currentValue;
+            }
+        }
+
+        function applyFilters() {
+            const userFilter = document.getElementById('userFilter').value;
+            const monthFilter = document.getElementById('monthFilter').value;
+            const titleFilter = document.getElementById('titleFilter').value;
+            const orderTypeFilter = document.getElementById('orderTypeFilter').value;
+
+            const filteredData = processedData.filter(item => {
+                return (userFilter === '全員' || item.applicant === userFilter) &&
+                       (monthFilter === '全月' || item.month === monthFilter) &&
+                       (titleFilter === '全タイトル' || item.title === titleFilter) &&
+                       (orderTypeFilter === '全区分' || item.orderType === orderTypeFilter);
+            });
+
+            updateChartsWithFilteredData(filteredData);
+            updateDataTableWithFilteredData(filteredData);
+        }
+
+        function updateCharts() {
+            updateChartsWithFilteredData(processedData);
+        }
+
+        function updateChartsWithFilteredData(data) {
+            // 棒グラフのデータ準備
+            const userAmounts = {};
+            data.forEach(item => {
+                if (!userAmounts[item.applicant]) {
+                    userAmounts[item.applicant] = 0;
+                }
+                userAmounts[item.applicant] += item.amount;
+            });
+
+            const sortedUsers = Object.entries(userAmounts)
+                .sort(([,a], [,b]) => b - a)
+                .slice(0, 10);
+
+            // 円グラフのデータ準備
+            const orderTypeAmounts = {};
+            data.forEach(item => {
+                if (!orderTypeAmounts[item.orderType]) {
+                    orderTypeAmounts[item.orderType] = 0;
+                }
+                orderTypeAmounts[item.orderType] += item.amount;
+            });
+
+            // 既存のチャートを破棄
+            if (barChart) {
+                barChart.destroy();
+            }
+            if (pieChart) {
+                pieChart.destroy();
+            }
+
+            // 棒グラフ作成
+            const barCtx = document.getElementById('barChart').getContext('2d');
+            barChart = new Chart(barCtx, {
+                type: 'bar',
+                data: {
+                    labels: sortedUsers.map(([user]) => user),
+                    datasets: [{
+                        label: '金額',
+                        data: sortedUsers.map(([, amount]) => amount),
+                        backgroundColor: 'rgba(54, 162, 235, 0.8)',
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return '¥' + value.toLocaleString();
+                                }
+                            }
+                        }
+                    },
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.dataset.label + ': ¥' + context.parsed.y.toLocaleString();
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            // 円グラフ作成
+            const pieCtx = document.getElementById('pieChart').getContext('2d');
+            const colors = [
+                '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', 
+                '#9966FF', '#FF9F40', '#FF6384', '#C9CBCF'
+            ];
+
+            pieChart = new Chart(pieCtx, {
+                type: 'pie',
+                data: {
+                    labels: Object.keys(orderTypeAmounts),
+                    datasets: [{
+                        data: Object.values(orderTypeAmounts),
+                        backgroundColor: colors.slice(0, Object.keys(orderTypeAmounts).length)
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const percentage = ((context.parsed / total) * 100).toFixed(1);
+                                    return context.label + ': ¥' + context.parsed.toLocaleString() + ' (' + percentage + '%)';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateDataTable() {
+            updateDataTableWithFilteredData(processedData);
+        }
+
+        function updateDataTableWithFilteredData(data) {
+            const tbody = document.getElementById('dataTableBody');
+            const tableInfo = document.getElementById('tableInfo');
+            
+            tbody.innerHTML = '';
+            
+            data.slice(0, 100).forEach(item => {
+                const row = document.createElement('tr');
+                
+                const dateStr = item.date ? item.date.toLocaleDateString('ja-JP') : '';
+                const amountClass = item.orderType === '外部発注' ? 'text-red' : '';
+                const orderTypeClass = item.orderType === '外部発注' ? 'text-red' : '';
+                
+                row.innerHTML = `
+                    <td>${dateStr}</td>
+                    <td>${item.applicant}</td>
+                    <td class="${amountClass}">¥${item.amount.toLocaleString()}</td>
+                    <td>${item.summary}</td>
+                    <td>${item.title}</td>
+                    <td class="${orderTypeClass}">${item.orderType}</td>
+                `;
+                
+                tbody.appendChild(row);
+            });
+            
+            tableInfo.textContent = `表示: ${Math.min(data.length, 100)}件 / 全${data.length}件`;
+        }
+
+        // UI ヘルパー関数
+        function showLoading() {
+            document.getElementById('loading').style.display = 'block';
+        }
+
+        function hideLoading() {
+            document.getElementById('loading').style.display = 'none';
+        }
+
+        function showError(message) {
+            const errorDiv = document.getElementById('error');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+            hideSuccess();
+        }
+
+        function hideError() {
+            document.getElementById('error').style.display = 'none';
+        }
+
+        function showSuccess(message) {
+            const successDiv = document.getElementById('success');
+            successDiv.textContent = message;
+            successDiv.style.display = 'block';
+            hideError();
+            setTimeout(() => {
+                hideSuccess();
+            }, 5000);
+        }
+
+        function hideSuccess() {
+            document.getElementById('success').style.display = 'none';
+        }
+
+        function showResults() {
+            document.getElementById('results').style.display = 'block';
+        }
+    </script>
+</body>
+</html>

@@ -69,15 +69,36 @@
         </div>
 
         <div class="upload-area" id="uploadArea">
-            <input type="file" id="fileInput" class="file-input" accept=".xlsx,.xls">
+            <input type="file" id="fileInput" class="file-input" accept=".xlsx,.xls,.csv">
             <div>
                 <button class="upload-btn" onclick="document.getElementById('fileInput').click()">
-                    📁 Excel ファイルを選択
+                    📁 Excel/CSV ファイルを選択
                 </button>
-                <p style="margin-top: 15px; color: #666;">
-                    または、ここにファイルをドラッグ&ドロップしてください
+                <p style="margin: 15px 0; color: #666;">または</p>
+                <div style="margin-bottom: 15px;">
+                    <input type="text" id="spreadsheetUrl" placeholder="GoogleスプレッドシートのURLを入力" 
+                           style="width: 70%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; margin-right: 10px;">
+                    <button class="upload-btn" onclick="loadFromSpreadsheet()" style="background: #34a853;">
+                        🔗 スプレッドシート読み込み
+                    </button>
+                </div>
+                <button class="upload-btn" onclick="loadFromGoogleAppsScript()" style="background: #ea4335;">
+                    🔄 リアルタイム連携
+                </button>
+                <p style="margin-top: 15px; color: #666; font-size: 14px;">
+                    Excel（.xlsx）、CSV（.csv）ファイルに対応<br>
+                    または、ここにファイルをドラッグ&ドロップしてください<br>
+                    <strong>Googleスプレッドシートのリアルタイム連携も可能！</strong>
                 </p>
             </div>
+        </div>
+
+        <div id="realtimeStatus" style="display: none; background: #e8f5e8; border: 1px solid #4caf50; border-radius: 5px; padding: 15px; margin: 20px 0;">
+            <h4 style="color: #2e7d32; margin: 0 0 10px 0;">🔄 リアルタイム連携中</h4>
+            <p style="margin: 0; color: #2e7d32;">スプレッドシートの変更が自動で反映されます</p>
+            <button onclick="stopRealtime()" style="background: #f44336; color: white; border: none; padding: 5px 10px; border-radius: 3px; margin-top: 10px; cursor: pointer;">
+                停止
+            </button>
         </div>
 
         <div id="error" class="error" style="display: none;"></div>
@@ -210,6 +231,8 @@
         let processedData = [];
         let summary = {};
         let barChart, pieChart;
+        let realtimeInterval;
+        let googleAppsScriptUrl = ''; // Google Apps ScriptのWeb App URL
 
         // 個人別月額目標
         const INDIVIDUAL_TARGETS = {
@@ -259,10 +282,17 @@
             reader.onload = function(e) {
                 try {
                     const data = e.target.result;
-                    const workbook = XLSX.read(data, { type: 'binary' });
-                    const sheetName = workbook.SheetNames[0];
-                    const worksheet = workbook.Sheets[sheetName];
-                    rawData = XLSX.utils.sheet_to_json(worksheet);
+                    
+                    if (file.name.toLowerCase().endsWith('.csv')) {
+                        // CSV処理
+                        rawData = parseCSV(data);
+                    } else {
+                        // Excel処理
+                        const workbook = XLSX.read(data, { type: 'binary' });
+                        const sheetName = workbook.SheetNames[0];
+                        const worksheet = workbook.Sheets[sheetName];
+                        rawData = XLSX.utils.sheet_to_json(worksheet);
+                    }
                     
                     processData();
                     createSummary();
@@ -274,7 +304,150 @@
                     hideLoading();
                 }
             };
-            reader.readAsBinaryString(file);
+            
+            if (file.name.toLowerCase().endsWith('.csv')) {
+                reader.readAsText(file, 'UTF-8');
+            } else {
+                reader.readAsBinaryString(file);
+            }
+        }
+
+        function parseCSV(csvText) {
+            const lines = csvText.split('\n');
+            const headers = lines[0].split(',').map(header => header.trim().replace(/"/g, ''));
+            const data = [];
+            
+            for (let i = 1; i < lines.length; i++) {
+                if (lines[i].trim() === '') continue;
+                
+                const values = lines[i].split(',').map(value => value.trim().replace(/"/g, ''));
+                const row = {};
+                
+                headers.forEach((header, index) => {
+                    if (values[index] !== undefined) {
+                        // 数値の場合は変換
+                        if (header === '税込金額' && !isNaN(parseFloat(values[index]))) {
+                            row[header] = parseFloat(values[index]);
+                        } else {
+                            row[header] = values[index];
+                        }
+                    }
+                });
+                
+                data.push(row);
+            }
+            
+            return data;
+        }
+
+        // Googleスプレッドシートから直接読み込み
+        async function loadFromSpreadsheet() {
+            const url = document.getElementById('spreadsheetUrl').value.trim();
+            if (!url) {
+                showError('スプレッドシートのURLを入力してください');
+                return;
+            }
+
+            try {
+                showLoading();
+                hideError();
+
+                // スプレッドシートURLからCSV形式で取得
+                let csvUrl;
+                if (url.includes('/edit')) {
+                    // 通常のスプレッドシートURL
+                    const spreadsheetId = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/)[1];
+                    csvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv`;
+                } else {
+                    showError('正しいGoogleスプレッドシートのURLを入力してください');
+                    hideLoading();
+                    return;
+                }
+
+                const response = await fetch(csvUrl);
+                if (!response.ok) {
+                    throw new Error('スプレッドシートにアクセスできません。共有設定を確認してください。');
+                }
+
+                const csvText = await response.text();
+                rawData = parseCSV(csvText);
+                
+                processData();
+                createSummary();
+                updateDisplay();
+                hideLoading();
+                showResults();
+                
+                showError('', 'success', '✅ スプレッドシートから正常に読み込まれました');
+                
+            } catch (error) {
+                showError('スプレッドシート読み込みエラー: ' + error.message);
+                hideLoading();
+            }
+        }
+
+        // Google Apps Script経由でリアルタイム連携
+        async function loadFromGoogleAppsScript() {
+            const scriptUrl = prompt('Google Apps ScriptのWeb App URLを入力してください:');
+            if (!scriptUrl) return;
+
+            googleAppsScriptUrl = scriptUrl;
+            
+            try {
+                await fetchFromGoogleAppsScript();
+                startRealtime();
+            } catch (error) {
+                showError('Google Apps Script連携エラー: ' + error.message);
+            }
+        }
+
+        async function fetchFromGoogleAppsScript() {
+            if (!googleAppsScriptUrl) return;
+
+            showLoading();
+            hideError();
+
+            try {
+                const response = await fetch(googleAppsScriptUrl);
+                const result = await response.json();
+                
+                if (result.success) {
+                    rawData = result.data;
+                    processData();
+                    createSummary();
+                    updateDisplay();
+                    hideLoading();
+                    showResults();
+                    
+                    document.getElementById('realtimeStatus').style.display = 'block';
+                } else {
+                    throw new Error(result.error || '不明なエラー');
+                }
+            } catch (error) {
+                showError('データ取得エラー: ' + error.message);
+                hideLoading();
+            }
+        }
+
+        function startRealtime() {
+            // 30秒ごとに自動更新
+            realtimeInterval = setInterval(async () => {
+                try {
+                    await fetchFromGoogleAppsScript();
+                    console.log('リアルタイム更新:', new Date().toLocaleTimeString());
+                } catch (error) {
+                    console.error('リアルタイム更新エラー:', error);
+                }
+            }, 30000);
+        }
+
+        function stopRealtime() {
+            if (realtimeInterval) {
+                clearInterval(realtimeInterval);
+                realtimeInterval = null;
+            }
+            document.getElementById('realtimeStatus').style.display = 'none';
+            googleAppsScriptUrl = '';
         }
 
         function processData() {
@@ -829,10 +1002,22 @@
             document.getElementById('loading').style.display = 'none';
         }
 
-        function showError(message) {
+        function showError(message, type = 'error', customMessage = '') {
             const errorDiv = document.getElementById('error');
-            errorDiv.textContent = message;
-            errorDiv.style.display = 'block';
+            if (customMessage) {
+                errorDiv.innerHTML = customMessage;
+                errorDiv.className = 'error';
+                errorDiv.style.background = '#d4edda';
+                errorDiv.style.color = '#155724';
+                errorDiv.style.border = '1px solid #c3e6cb';
+            } else if (message) {
+                errorDiv.textContent = message;
+                errorDiv.className = 'error';
+                errorDiv.style.background = '#f8d7da';
+                errorDiv.style.color = '#721c24';
+                errorDiv.style.border = '1px solid #f5c6cb';
+            }
+            errorDiv.style.display = message || customMessage ? 'block' : 'none';
         }
 
         function hideError() {

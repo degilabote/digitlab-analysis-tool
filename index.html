@@ -423,15 +423,20 @@
 
         // ページ読み込み時に自動接続を試行
         window.addEventListener('load', async function() {
+            console.log('ページ読み込み完了、自動接続を開始...');
+            console.log('使用URL:', googleAppsScriptUrl);
+            
             // デフォルトスプレッドシートへの自動接続を試行
             try {
                 await fetchFromGoogleAppsScript();
                 setupConnection();
                 document.getElementById('uploadArea').style.display = 'none';
                 showError('', 'success', '✅ デジラボスプレッドシートに自動接続しました');
+                console.log('自動接続成功');
             } catch (error) {
                 // 自動接続に失敗した場合は通常の画面を表示
-                console.log('自動接続失敗、手動接続を待機中:', error.message);
+                console.error('自動接続失敗:', error);
+                showError('自動接続に失敗しました: ' + error.message + '\n\n手動で「🚀 デジラボ分析を開始」ボタンをクリックしてください。');
             }
         });
 
@@ -529,6 +534,8 @@
                     document.head.removeChild(script);
                     delete window[callbackName];
                     
+                    console.log('Google Apps Script からの応答:', result);
+                    
                     try {
                         if (result.success) {
                             rawData = result.data;
@@ -541,7 +548,7 @@
                             // 初回接続時はsetupConnectionを呼び出さない（すでに呼ばれているため）
                             resolve(result);
                         } else {
-                            throw new Error(result.error || '不明なエラー');
+                            throw new Error(`スクリプトエラー: ${result.error || '不明なエラー'}\n詳細: ${result.message || 'なし'}`);
                         }
                     } catch (error) {
                         hideLoading();
@@ -549,15 +556,33 @@
                     }
                 };
 
-                // スクリプトタグを作成してJSONPリクエスト
-                const script = document.createElement('script');
-                script.src = `${googleAppsScriptUrl}?callback=${callbackName}`;
+                // エラーハンドリングを強化
                 script.onerror = function() {
                     document.head.removeChild(script);
                     delete window[callbackName];
                     hideLoading();
-                    reject(new Error('スクリプトの読み込みに失敗しました。URLを確認してください。'));
+                    reject(new Error(
+                        'Google Apps Script との接続に失敗しました。\n\n' +
+                        '考えられる原因:\n' +
+                        '1. インターネット接続の問題\n' +
+                        '2. スプレッドシートのアクセス権限\n' +
+                        '3. Apps Script のデプロイ設定\n\n' +
+                        'しばらく待ってから再度お試しください。'
+                    ));
                 };
+                
+                // タイムアウト設定（10秒）
+                setTimeout(() => {
+                    if (document.head.contains(script)) {
+                        document.head.removeChild(script);
+                        delete window[callbackName];
+                        hideLoading();
+                        reject(new Error(
+                            'タイムアウト: Google Apps Script からの応答がありません。\n\n' +
+                            'ネットワーク環境を確認してから再度お試しください。'
+                        ));
+                    }
+                }, 10000);
                 
                 document.head.appendChild(script);
             });

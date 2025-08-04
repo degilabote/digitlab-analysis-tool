@@ -65,61 +65,44 @@
     <div class="container">
         <div class="header">
             <h1>📊 デジラボユニット払出し票分析</h1>
-            <p>Excel ファイルをアップロードして分析を開始してください</p>
+            <p>Excel ファイルまたはGoogleスプレッドシートから分析を開始してください</p>
         </div>
 
         <div class="upload-area" id="uploadArea">
             <input type="file" id="fileInput" class="file-input" accept=".xlsx,.xls,.csv">
             <div>
-                <button class="upload-btn" onclick="document.getElementById('fileInput').click()">
-                    📁 Excel/CSV ファイルを選択
-                </button>
-                <p style="margin: 15px 0; color: #666;">または</p>
-                <div style="margin-bottom: 15px;">
+                <div id="defaultConnectionArea">
+                    <button class="upload-btn" onclick="loadFromDefaultSpreadsheet()" style="background: #34a853; font-size: 18px; padding: 15px 30px;">
+                        🚀 デジラボスプレッドシートを読み込み
+                    </button>
+                    <p style="margin: 15px 0; color: #666; font-weight: bold;">
+                        ↑ クリックで最新のスプレッドシートデータを読み込み
+                    </p>
+                </div>
+                
+                <div style="margin: 20px 0; padding: 15px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #007bff;">
+                    <h4 style="margin: 0 0 10px 0; color: #007bff;">📊 その他のデータソース</h4>
+                    <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center;">
+                        <button class="upload-btn" onclick="document.getElementById('fileInput').click()" style="background: #6c757d;">
+                            📁 Excel/CSV ファイル
+                        </button>
+                        <button class="upload-btn" onclick="showSpreadsheetUrlInput()" style="background: #28a745;">
+                            🔗 別のスプレッドシート
+                        </button>
+                    </div>
+                </div>
+
+                <div id="customSpreadsheetArea" style="display: none; margin: 15px 0;">
                     <input type="text" id="spreadsheetUrl" placeholder="GoogleスプレッドシートのURLを入力" 
                            style="width: 70%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; margin-right: 10px;">
                     <button class="upload-btn" onclick="loadFromSpreadsheet()" style="background: #34a853;">
-                        🔗 スプレッドシート読み込み
+                        🔗 読み込み
                     </button>
                 </div>
-                <button class="upload-btn" onclick="loadFromGoogleAppsScript()" style="background: #ea4335;">
-                    🔄 リアルタイム連携
-                </button>
-                <p style="margin-top: 15px; color: #666; font-size: 14px;">
-                    Excel（.xlsx）、CSV（.csv）ファイルに対応<br>
-                    または、ここにファイルをドラッグ&ドロップしてください<br>
-                    <strong>Googleスプレッドシートのリアルタイム連携も可能！</strong>
-                </p>
-            </div>
-        </div>
 
-        <div id="realtimeStatus" style="display: none; background: #e8f5e8; border: 1px solid #4caf50; border-radius: 5px; padding: 15px; margin: 20px 0;">
-            <h4 style="color: #2e7d32; margin: 0 0 10px 0;">🔗 スプレッドシート連携中</h4>
-            <p style="margin: 0 0 10px 0; color: #2e7d32;" id="connectionInfo">接続済み</p>
-            
-            <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px;">
-                <button onclick="manualUpdate()" style="background: #2196f3; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">
-                    🔄 手動更新
-                </button>
-                <label style="display: flex; align-items: center; gap: 5px;">
-                    <input type="checkbox" id="autoUpdateToggle" onchange="toggleAutoUpdate()">
-                    自動更新を有効にする
-                </label>
-                <select id="updateInterval" onchange="updateAutoUpdateInterval()" style="padding: 5px; border: 1px solid #ddd; border-radius: 3px;">
-                    <option value="300000">5分ごと</option>
-                    <option value="900000">15分ごと</option>
-                    <option value="1800000">30分ごと</option>
-                    <option value="3600000" selected>1時間ごと</option>
-                    <option value="21600000">6時間ごと</option>
-                    <option value="86400000">24時間ごと</option>
-                </select>
-            </div>
-            
-            <div style="display: flex; gap: 10px;">
-                <button onclick="stopRealtime()" style="background: #f44336; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer;">
-                    接続解除
-                </button>
-                <span id="lastUpdateTime" style="font-size: 12px; color: #666; line-height: 2;"></span>
+                <p style="margin-top: 15px; color: #666; font-size: 14px;">
+                    Excel（.xlsx）、CSV（.csv）ファイルまたはGoogleスプレッドシートに対応
+                </p>
             </div>
         </div>
 
@@ -305,10 +288,8 @@
                     const data = e.target.result;
                     
                     if (file.name.toLowerCase().endsWith('.csv')) {
-                        // CSV処理
                         rawData = parseCSV(data);
                     } else {
-                        // Excel処理
                         const workbook = XLSX.read(data, { type: 'binary' });
                         const sheetName = workbook.SheetNames[0];
                         const worksheet = workbook.Sheets[sheetName];
@@ -346,7 +327,6 @@
                 
                 headers.forEach((header, index) => {
                     if (values[index] !== undefined) {
-                        // 数値の場合は変換
                         if (header === '税込金額' && !isNaN(parseFloat(values[index]))) {
                             row[header] = parseFloat(values[index]);
                         } else {
@@ -359,52 +339,6 @@
             }
             
             return data;
-        }
-
-        // Googleスプレッドシートから直接読み込み
-        async function loadFromSpreadsheet() {
-            const url = document.getElementById('spreadsheetUrl').value.trim();
-            if (!url) {
-                showError('スプレッドシートのURLを入力してください');
-                return;
-            }
-
-            try {
-                showLoading();
-                hideError();
-
-                // スプレッドシートURLからCSV形式で取得
-                let csvUrl;
-                if (url.includes('/edit')) {
-                    // 通常のスプレッドシートURL
-                    const spreadsheetId = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/)[1];
-                    csvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv`;
-                } else {
-                    showError('正しいGoogleスプレッドシートのURLを入力してください');
-                    hideLoading();
-                    return;
-                }
-
-                const response = await fetch(csvUrl);
-                if (!response.ok) {
-                    throw new Error('スプレッドシートにアクセスできません。共有設定を確認してください。');
-                }
-
-                const csvText = await response.text();
-                rawData = parseCSV(csvText);
-                
-                processData();
-                createSummary();
-                updateDisplay();
-                hideLoading();
-                showResults();
-                
-                showError('', 'success', '✅ スプレッドシートから正常に読み込まれました');
-                
-            } catch (error) {
-                showError('スプレッドシート読み込みエラー: ' + error.message);
-                hideLoading();
-            }
         }
 
         // デフォルトスプレッドシートから読み込み
@@ -435,25 +369,6 @@
             }
         }
 
-        // ページ読み込み時に自動読み込みを試行
-        window.addEventListener('load', async function() {
-            console.log('ページ読み込み完了、自動読み込みを開始...');
-            
-            try {
-                await loadFromDefaultSpreadsheet();
-                console.log('自動読み込み成功');
-            } catch (error) {
-                console.error('自動読み込み失敗:', error);
-                showError('自動読み込みに失敗しました: ' + error.message + '\n\n手動で「🚀 デジラボスプレッドシートを読み込み」ボタンをクリックしてください。');
-            }
-        });
-
-        // カスタムスプレッドシートURL入力欄の表示
-        function showSpreadsheetUrlInput() {
-            const area = document.getElementById('customSpreadsheetArea');
-            area.style.display = area.style.display === 'none' ? 'block' : 'none';
-        }
-
         // Googleスプレッドシートから直接読み込み
         async function loadFromSpreadsheet() {
             const url = document.getElementById('spreadsheetUrl').value.trim();
@@ -466,10 +381,8 @@
                 showLoading();
                 hideError();
 
-                // スプレッドシートURLからCSV形式で取得
                 let csvUrl;
                 if (url.includes('/edit')) {
-                    // 通常のスプレッドシートURL
                     const spreadsheetId = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/)[1];
                     csvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv`;
                 } else {
@@ -504,178 +417,20 @@
         function showSpreadsheetUrlInput() {
             const area = document.getElementById('customSpreadsheetArea');
             area.style.display = area.style.display === 'none' ? 'block' : 'none';
-        }ConnectionInfo();
-            updateLastUpdateTime();
         }
 
-        // 自動更新の切り替え
-        function toggleAutoUpdate() {
-            const isEnabled = document.getElementById('autoUpdateToggle').checked;
+        // ページ読み込み時に自動読み込みを試行
+        window.addEventListener('load', async function() {
+            console.log('ページ読み込み完了、自動読み込みを開始...');
             
-            if (isEnabled) {
-                startRealtime();
-            } else {
-                stopAutoUpdate();
+            try {
+                await loadFromDefaultSpreadsheet();
+                console.log('自動読み込み成功');
+            } catch (error) {
+                console.error('自動読み込み失敗:', error);
+                showError('自動読み込みに失敗しました: ' + error.message + '\n\n手動で「🚀 デジラボスプレッドシートを読み込み」ボタンをクリックしてください。');
             }
-            
-            updateConnectionInfo();
-        }
-
-        // 自動更新間隔の変更
-        function updateAutoUpdateInterval() {
-            const isAutoEnabled = document.getElementById('autoUpdateToggle').checked;
-            if (isAutoEnabled) {
-                stopAutoUpdate();
-                startRealtime();
-            }
-        }
-
-        // 接続情報の更新
-        function updateConnectionInfo() {
-            const isAutoEnabled = document.getElementById('autoUpdateToggle').checked;
-            const interval = document.getElementById('updateInterval').value;
-            const intervalText = document.getElementById('updateInterval').selectedOptions[0].text;
-            
-            const infoElement = document.getElementById('connectionInfo');
-            if (isAutoEnabled) {
-                infoElement.textContent = `自動更新中（${intervalText}）`;
-                infoElement.style.color = '#2e7d32';
-            } else {
-                infoElement.textContent = '手動更新モード';
-                infoElement.style.color = '#1976d2';
-            }
-        }
-
-        // 最終更新時刻の表示
-        function updateLastUpdateTime() {
-            const now = new Date();
-            const timeString = now.toLocaleString('ja-JP');
-            document.getElementById('lastUpdateTime').textContent = `最終更新: ${timeString}`;
-        }
-
-        function fetchFromGoogleAppsScript() {
-            return new Promise((resolve, reject) => {
-                if (!googleAppsScriptUrl) {
-                    reject(new Error('Google Apps Script URLが設定されていません'));
-                    return;
-                }
-
-                showLoading();
-                hideError();
-
-                // JSONP用のコールバック関数名を生成
-                const callbackName = 'jsonp_callback_' + Date.now();
-                let script; // スコープを関数全体に拡張
-                
-                // コールバック関数をグローバルに定義
-                window[callbackName] = function(result) {
-                    // スクリプトタグを削除
-                    if (script && document.head.contains(script)) {
-                        document.head.removeChild(script);
-                    }
-                    delete window[callbackName];
-                    
-                    console.log('Google Apps Script からの応答:', result);
-                    
-                    try {
-                        if (result.success) {
-                            rawData = result.data;
-                            processData();
-                            createSummary();
-                            updateDisplay();
-                            hideLoading();
-                            showResults();
-                            
-                            resolve(result);
-                        } else {
-                            throw new Error(`スクリプトエラー: ${result.error || '不明なエラー'}\n詳細: ${result.message || 'なし'}`);
-                        }
-                    } catch (error) {
-                        hideLoading();
-                        reject(error);
-                    }
-                };
-
-                // スクリプトタグを作成してJSONPリクエスト
-                script = document.createElement('script');
-                script.src = `${googleAppsScriptUrl}?callback=${callbackName}`;
-                
-                // エラーハンドリング
-                script.onerror = function() {
-                    if (script && document.head.contains(script)) {
-                        document.head.removeChild(script);
-                    }
-                    delete window[callbackName];
-                    hideLoading();
-                    reject(new Error(
-                        'Google Apps Script との接続に失敗しました。\n\n' +
-                        '考えられる原因:\n' +
-                        '1. インターネット接続の問題\n' +
-                        '2. スプレッドシートのアクセス権限\n' +
-                        '3. Apps Script のデプロイ設定\n\n' +
-                        'しばらく待ってから再度お試しください。'
-                    ));
-                };
-                
-                // タイムアウト設定（15秒）
-                setTimeout(() => {
-                    if (script && document.head.contains(script)) {
-                        document.head.removeChild(script);
-                        delete window[callbackName];
-                        hideLoading();
-                        reject(new Error(
-                            'タイムアウト: Google Apps Script からの応答がありません。\n\n' +
-                            'ネットワーク環境を確認してから再度お試しください。'
-                        ));
-                    }
-                }, 15000);
-                
-                // スクリプトタグをDOMに追加
-                document.head.appendChild(script);
-            });
-        }
-
-        function startRealtime() {
-            // 既存の自動更新を停止
-            stopAutoUpdate();
-            
-            // 選択された間隔を取得
-            const interval = parseInt(document.getElementById('updateInterval').value);
-            
-            // 自動更新を開始
-            realtimeInterval = setInterval(() => {
-                fetchFromGoogleAppsScript()
-                    .then(() => {
-                        console.log('自動更新完了:', new Date().toLocaleTimeString());
-                        updateLastUpdateTime();
-                    })
-                    .catch((error) => {
-                        console.error('自動更新エラー:', error);
-                        showError('自動更新でエラーが発生しました: ' + error.message);
-                    });
-            }, interval);
-            
-            console.log(`自動更新開始: ${interval / 1000 / 60}分間隔`);
-        }
-
-        function stopAutoUpdate() {
-            if (realtimeInterval) {
-                clearInterval(realtimeInterval);
-                realtimeInterval = null;
-            }
-        }
-
-        function stopRealtime() {
-            stopAutoUpdate();
-            document.getElementById('realtimeStatus').style.display = 'none';
-            document.getElementById('uploadArea').style.display = 'block';
-            document.getElementById('autoUpdateToggle').checked = false;
-            
-            // デフォルトスプレッドシートの場合は完全に切断しない
-            if (googleAppsScriptUrl !== 'https://script.google.com/macros/s/AKfycbyn5FDO8yyWB0XqzhLirPN3Zoc_pGDhZkTXGfjEIA9MHTloExjSBy2NPNb38SDbo5rz/exec') {
-                googleAppsScriptUrl = '';
-            }
-        }
+        });
 
         function processData() {
             processedData = rawData.map((row, index) => {
@@ -687,74 +442,109 @@
                         date = new Date((dateField - 25569) * 86400 * 1000);
                     } else if (typeof dateField === 'string') {
                         date = new Date(dateField);
+                    } else if (dateField instanceof Date) {
+                        date = dateField;
+                    }
+                }
+
+                let amount = 0;
+                const amountField = row['税込金額'];
+                if (amountField !== null && amountField !== undefined && amountField !== '') {
+                    if (typeof amountField === 'number') {
+                        amount = amountField;
+                    } else if (typeof amountField === 'string') {
+                        const cleanAmount = amountField.replace(/[,¥]/g, '');
+                        amount = parseFloat(cleanAmount) || 0;
                     }
                 }
 
                 return {
                     id: index,
                     date: date,
-                    month: date ? `${date.getFullYear()}年${date.getMonth() + 1}月` : '不明',
+                    month: date && !isNaN(date.getTime()) ? `${date.getFullYear()}年${date.getMonth() + 1}月` : '不明',
                     applicant: row['申請者'] || '不明',
-                    amount: parseFloat(row['税込金額'] || 0),
+                    amount: amount,
                     summary: row['摘要'] || '不明',
                     title: row['タイトル'] || '不明',
                     orderType: row['発注区分'] || '不明'
                 };
-            });
+            }).filter(item => 
+                item.applicant !== '不明' && 
+                item.applicant !== '' && 
+                item.month !== '不明' &&
+                !isNaN(item.amount)
+            );
+
+            console.log('処理後のデータ件数:', processedData.length);
+            console.log('処理前のデータ件数:', rawData.length);
         }
 
         function createSummary() {
             const userSummary = {};
             const monthSummary = {};
-            const orderTypeSummary = {};
+            const categorySummary = {};
             const titleSummary = {};
+            const orderTypeSummary = {};
 
             processedData.forEach(item => {
-                // 申請者別
                 if (!userSummary[item.applicant]) {
                     userSummary[item.applicant] = { 
                         total: 0, 
                         months: {}, 
-                        orderTypes: {},
-                        titles: {}
+                        categories: {}, 
+                        titles: {}, 
+                        orderTypes: {} 
                     };
                 }
                 userSummary[item.applicant].total += item.amount;
 
-                // 月別
                 if (!userSummary[item.applicant].months[item.month]) {
                     userSummary[item.applicant].months[item.month] = 0;
                 }
                 userSummary[item.applicant].months[item.month] += item.amount;
 
-                // 発注区分別
+                if (!userSummary[item.applicant].categories[item.summary]) {
+                    userSummary[item.applicant].categories[item.summary] = 0;
+                }
+                userSummary[item.applicant].categories[item.summary] += item.amount;
+
+                if (!userSummary[item.applicant].titles[item.title]) {
+                    userSummary[item.applicant].titles[item.title] = 0;
+                }
+                userSummary[item.applicant].titles[item.title] += item.amount;
+
                 if (!userSummary[item.applicant].orderTypes[item.orderType]) {
                     userSummary[item.applicant].orderTypes[item.orderType] = 0;
                 }
                 userSummary[item.applicant].orderTypes[item.orderType] += item.amount;
 
-                // 全体集計
                 if (!monthSummary[item.month]) {
                     monthSummary[item.month] = 0;
                 }
                 monthSummary[item.month] += item.amount;
 
-                if (!orderTypeSummary[item.orderType]) {
-                    orderTypeSummary[item.orderType] = 0;
+                if (!categorySummary[item.summary]) {
+                    categorySummary[item.summary] = 0;
                 }
-                orderTypeSummary[item.orderType] += item.amount;
+                categorySummary[item.summary] += item.amount;
 
                 if (!titleSummary[item.title]) {
                     titleSummary[item.title] = 0;
                 }
                 titleSummary[item.title] += item.amount;
+
+                if (!orderTypeSummary[item.orderType]) {
+                    orderTypeSummary[item.orderType] = 0;
+                }
+                orderTypeSummary[item.orderType] += item.amount;
             });
 
             summary = {
                 users: userSummary,
                 months: monthSummary,
-                orderTypes: orderTypeSummary,
+                categories: categorySummary,
                 titles: titleSummary,
+                orderTypes: orderTypeSummary,
                 totalAmount: processedData.reduce((sum, item) => sum + item.amount, 0),
                 totalCount: processedData.length
             };
@@ -815,445 +605,8 @@
                 quotaGrid.appendChild(card);
             });
 
-            // 全体達成率更新
             const totalDigitalLab = summary.totalAmount - (summary.orderTypes['開発'] || 0) * 2;
             const overallRate = (totalDigitalLab / (MONTHLY_QUOTA * 4)) * 100;
             
             document.getElementById('totalDigitalLab').textContent = '¥' + totalDigitalLab.toLocaleString();
             document.getElementById('overallAchievement').textContent = overallRate.toFixed(1) + '%';
-            document.getElementById('overallAchievement').style.color = 
-                overallRate >= 100 ? '#28a745' : overallRate >= 80 ? '#ffc107' : '#dc3545';
-        }
-
-        function updateIndividualSection() {
-            const individualMonthly = calculateIndividualMonthly();
-            const individualGrid = document.getElementById('individualGrid');
-            individualGrid.innerHTML = '';
-
-            Object.entries(individualMonthly).forEach(([applicant, data]) => {
-                const card = document.createElement('div');
-                card.className = 'individual-card';
-
-                let monthsHtml = '';
-                data.months.forEach(monthData => {
-                    const progressClass = monthData.achievementRate >= 100 ? 'progress-green' : 
-                                        monthData.achievementRate >= 80 ? 'progress-yellow' : 'progress-red';
-                    
-                    monthsHtml += `
-                        <div class="month-detail">
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-                                <span style="font-weight: 500;">${monthData.month}</span>
-                                <span style="color: ${monthData.achievementRate >= 100 ? '#28a745' : monthData.achievementRate >= 80 ? '#ffc107' : '#dc3545'};">
-                                    ${monthData.achievementRate.toFixed(0)}%
-                                </span>
-                            </div>
-                            <div class="month-progress">
-                                <div class="progress-fill ${progressClass}" style="width: ${Math.min(monthData.achievementRate, 100)}%"></div>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; font-size: 11px; color: #666;">
-                                <span>¥${monthData.amount.toLocaleString()}</span>
-                                <span style="color: ${monthData.difference >= 0 ? '#28a745' : '#dc3545'};">
-                                    ${monthData.difference >= 0 ? '+' : ''}¥${monthData.difference.toLocaleString()}
-                                </span>
-                            </div>
-                        </div>
-                    `;
-                });
-
-                const overallColor = data.overallAchievementRate >= 100 ? '#28a745' : 
-                                   data.overallAchievementRate >= 80 ? '#ffc107' : '#dc3545';
-                const overallIcon = data.overallAchievementRate >= 100 ? '✅' : 
-                                  data.overallAchievementRate >= 80 ? '⚠️' : '❌';
-
-                card.innerHTML = `
-                    <h4 style="margin-bottom: 15px; color: #333;">${applicant}</h4>
-                    <div style="margin-bottom: 15px;">
-                        <div style="font-size: 14px; color: #666;">月目標: ¥${data.target.toLocaleString()}</div>
-                        <div style="font-size: 14px; font-weight: 500; color: #007bff;">4ヶ月実績: ¥${data.totalAmount.toLocaleString()}</div>
-                        <div style="font-size: 14px; font-weight: bold; color: ${overallColor};">
-                            全体達成率: ${data.overallAchievementRate.toFixed(1)}% ${overallIcon}
-                        </div>
-                    </div>
-                    ${monthsHtml}
-                `;
-                individualGrid.appendChild(card);
-            });
-        }
-
-        function calculateDigitalLabMonthly() {
-            const monthlyData = {};
-            
-            processedData.forEach(item => {
-                if (!monthlyData[item.month]) {
-                    monthlyData[item.month] = 0;
-                }
-                if (item.orderType === '開発') {
-                    monthlyData[item.month] -= item.amount;
-                } else {
-                    monthlyData[item.month] += item.amount;
-                }
-            });
-
-            // 月を時系列順にソート
-            const sortedMonths = Object.entries(monthlyData).sort(([monthA], [monthB]) => {
-                const getMonthNumber = (monthStr) => {
-                    const match = monthStr.match(/(\d{4})年(\d{1,2})月/);
-                    if (match) {
-                        return parseInt(match[1]) * 100 + parseInt(match[2]);
-                    }
-                    return 0;
-                };
-                return getMonthNumber(monthA) - getMonthNumber(monthB);
-            });
-
-            return sortedMonths.map(([month, amount]) => ({
-                month,
-                amount,
-                quota: MONTHLY_QUOTA,
-                achievementRate: (amount / MONTHLY_QUOTA) * 100,
-                difference: amount - MONTHLY_QUOTA
-            }));
-        }
-
-        function calculateIndividualMonthly() {
-            const individualData = {};
-            
-            processedData.forEach(item => {
-                if (!individualData[item.applicant]) {
-                    individualData[item.applicant] = {};
-                }
-                if (!individualData[item.applicant][item.month]) {
-                    individualData[item.applicant][item.month] = 0;
-                }
-                
-                if (item.orderType === '開発') {
-                    individualData[item.applicant][item.month] -= item.amount;
-                } else {
-                    individualData[item.applicant][item.month] += item.amount;
-                }
-            });
-
-            const result = {};
-            Object.entries(individualData).forEach(([applicant, months]) => {
-                const target = INDIVIDUAL_TARGETS[applicant] || 0;
-                
-                // 月を時系列順にソート
-                const sortedMonths = Object.entries(months).sort(([monthA], [monthB]) => {
-                    // "2025年4月" のような形式を比較用の数値に変換
-                    const getMonthNumber = (monthStr) => {
-                        const match = monthStr.match(/(\d{4})年(\d{1,2})月/);
-                        if (match) {
-                            return parseInt(match[1]) * 100 + parseInt(match[2]);
-                        }
-                        return 0;
-                    };
-                    return getMonthNumber(monthA) - getMonthNumber(monthB);
-                });
-
-                result[applicant] = {
-                    target,
-                    months: sortedMonths.map(([month, amount]) => ({
-                        month,
-                        amount,
-                        target,
-                        achievementRate: target > 0 ? (amount / target) * 100 : 0,
-                        difference: amount - target
-                    })),
-                    totalAmount: Object.values(months).reduce((sum, amount) => sum + amount, 0),
-                    totalTarget: target * 4,
-                    overallAchievementRate: target > 0 ? (Object.values(months).reduce((sum, amount) => sum + amount, 0) / (target * 4)) * 100 : 0
-                };
-            });
-
-            return result;
-        }
-
-        function updateFilters() {
-            // フィルター更新処理
-            const userFilter = document.getElementById('userFilter');
-            const monthFilter = document.getElementById('monthFilter');
-            const titleFilter = document.getElementById('titleFilter');
-            const orderTypeFilter = document.getElementById('orderTypeFilter');
-
-            userFilter.innerHTML = '<option value="全員">全員</option>';
-            Object.keys(summary.users).forEach(user => {
-                const option = document.createElement('option');
-                option.value = user;
-                option.textContent = user;
-                userFilter.appendChild(option);
-            });
-
-            monthFilter.innerHTML = '<option value="全月">全月</option>';
-            Object.keys(summary.months).sort().forEach(month => {
-                const option = document.createElement('option');
-                option.value = month;
-                option.textContent = month;
-                monthFilter.appendChild(option);
-            });
-
-            titleFilter.innerHTML = '<option value="全タイトル">全プロジェクト</option>';
-            Object.keys(summary.titles).sort().forEach(title => {
-                const option = document.createElement('option');
-                option.value = title;
-                option.textContent = title;
-                titleFilter.appendChild(option);
-            });
-
-            orderTypeFilter.innerHTML = '<option value="全区分">全区分</option>';
-            Object.keys(summary.orderTypes).sort().forEach(orderType => {
-                const option = document.createElement('option');
-                option.value = orderType;
-                option.textContent = orderType;
-                orderTypeFilter.appendChild(option);
-            });
-
-            // フィルター変更イベント
-            [userFilter, monthFilter, titleFilter, orderTypeFilter].forEach(filter => {
-                filter.addEventListener('change', () => {
-                    updateCharts();
-                    updateDataTable();
-                });
-            });
-        }
-
-        function getFilteredData() {
-            const userFilter = document.getElementById('userFilter').value;
-            const monthFilter = document.getElementById('monthFilter').value;
-            const titleFilter = document.getElementById('titleFilter').value;
-            const orderTypeFilter = document.getElementById('orderTypeFilter').value;
-
-            return processedData.filter(item => {
-                const userMatch = userFilter === '全員' || item.applicant === userFilter;
-                const monthMatch = monthFilter === '全月' || item.month === monthFilter;
-                const titleMatch = titleFilter === '全タイトル' || item.title === titleFilter;
-                const orderTypeMatch = orderTypeFilter === '全区分' || item.orderType === orderTypeFilter;
-                return userMatch && monthMatch && titleMatch && orderTypeMatch;
-            });
-        }
-
-        function updateCharts() {
-            updateBarChart();
-            updatePieChart();
-        }
-
-        function updateBarChart() {
-            const filtered = getFilteredData();
-            const userData = {};
-            
-            filtered.forEach(item => {
-                if (!userData[item.applicant]) {
-                    userData[item.applicant] = 0;
-                }
-                userData[item.applicant] += item.amount;
-            });
-
-            // データを金額でソート（降順）
-            const sortedData = Object.entries(userData)
-                .sort(([,a], [,b]) => b - a);
-            
-            const labels = sortedData.map(([name]) => name);
-            const data = sortedData.map(([,amount]) => amount);
-
-            if (barChart) {
-                barChart.destroy();
-            }
-
-            const ctx = document.getElementById('barChart').getContext('2d');
-            barChart = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        label: '金額',
-                        data: data,
-                        backgroundColor: [
-                            'rgba(54, 162, 235, 0.8)',
-                            'rgba(255, 99, 132, 0.8)',
-                            'rgba(75, 192, 192, 0.8)',
-                            'rgba(255, 205, 86, 0.8)',
-                            'rgba(153, 102, 255, 0.8)',
-                            'rgba(255, 159, 64, 0.8)'
-                        ],
-                        borderColor: [
-                            'rgba(54, 162, 235, 1)',
-                            'rgba(255, 99, 132, 1)',
-                            'rgba(75, 192, 192, 1)',
-                            'rgba(255, 205, 86, 1)',
-                            'rgba(153, 102, 255, 1)',
-                            'rgba(255, 159, 64, 1)'
-                        ],
-                        borderWidth: 1
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            ticks: {
-                                callback: function(value) {
-                                    return '¥' + (value / 1000000).toFixed(1) + 'M';
-                                }
-                            }
-                        },
-                        x: {
-                            ticks: {
-                                maxRotation: 45,
-                                minRotation: 0
-                            }
-                        }
-                    },
-                    plugins: {
-                        legend: {
-                            display: false
-                        },
-                        tooltip: {
-                            callbacks: {
-                                label: function(context) {
-                                    return '¥' + context.parsed.y.toLocaleString();
-                                }
-                            }
-                        }
-                    }
-                }
-            });
-        }
-
-        function updatePieChart() {
-            const filtered = getFilteredData();
-            const orderTypeData = {};
-            
-            filtered.forEach(item => {
-                if (!orderTypeData[item.orderType]) {
-                    orderTypeData[item.orderType] = 0;
-                }
-                orderTypeData[item.orderType] += item.amount;
-            });
-
-            const labels = Object.keys(orderTypeData);
-            const data = Object.values(orderTypeData);
-            const colors = [
-                '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', 
-                '#9966FF', '#FF9F40', '#FF6384', '#36A2EB'
-            ];
-
-            if (pieChart) {
-                pieChart.destroy();
-            }
-
-            const ctx = document.getElementById('pieChart').getContext('2d');
-            pieChart = new Chart(ctx, {
-                type: 'pie',
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        data: data,
-                        backgroundColor: colors.slice(0, labels.length),
-                        borderWidth: 2,
-                        borderColor: '#fff'
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            position: 'bottom'
-                        },
-                        tooltip: {
-                            callbacks: {
-                                label: function(context) {
-                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                                    const percentage = ((context.parsed / total) * 100).toFixed(1);
-                                    return context.label + ': ¥' + context.parsed.toLocaleString() + ' (' + percentage + '%)';
-                                }
-                            }
-                        }
-                    }
-                }
-            });
-        }
-
-        function updateDataTable() {
-            const filtered = getFilteredData();
-            const tbody = document.getElementById('dataTableBody');
-            const tableInfo = document.getElementById('tableInfo');
-            
-            tbody.innerHTML = '';
-            
-            // 最初の50件のみ表示
-            const displayData = filtered.slice(0, 50);
-            
-            displayData.forEach((item, index) => {
-                const row = document.createElement('tr');
-                const orderTypeClass = getOrderTypeClass(item.orderType);
-                
-                row.innerHTML = `
-                    <td>${item.month}</td>
-                    <td>${item.applicant}</td>
-                    <td style="text-align: right; ${item.amount < 0 ? 'color: #dc3545;' : ''}">
-                        ¥${item.amount.toLocaleString()}
-                    </td>
-                    <td>${item.summary}</td>
-                    <td>${item.title}</td>
-                    <td style="text-align: center; font-weight: bold;" class="${orderTypeClass}">
-                        ${item.orderType}
-                    </td>
-                `;
-                tbody.appendChild(row);
-            });
-
-            tableInfo.textContent = filtered.length > 50 ? 
-                `最初の50件を表示中（全${filtered.length}件）` : 
-                `全${filtered.length}件を表示`;
-        }
-
-        function getOrderTypeClass(orderType) {
-            switch(orderType) {
-                case '外部発注': return 'text-red';
-                case '社内': return 'text-blue';
-                case 'デジラボ': return 'text-green';
-                case '開発': return 'text-purple';
-                case '値引き': return 'text-orange';
-                case 'Ｐ粗利実績': return 'text-teal';
-                default: return '';
-            }
-        }
-
-        function showLoading() {
-            document.getElementById('loading').style.display = 'block';
-        }
-
-        function hideLoading() {
-            document.getElementById('loading').style.display = 'none';
-        }
-
-        function showError(message, type = 'error', customMessage = '') {
-            const errorDiv = document.getElementById('error');
-            if (customMessage) {
-                errorDiv.innerHTML = customMessage;
-                errorDiv.className = 'error';
-                errorDiv.style.background = '#d4edda';
-                errorDiv.style.color = '#155724';
-                errorDiv.style.border = '1px solid #c3e6cb';
-            } else if (message) {
-                errorDiv.textContent = message;
-                errorDiv.className = 'error';
-                errorDiv.style.background = '#f8d7da';
-                errorDiv.style.color = '#721c24';
-                errorDiv.style.border = '1px solid #f5c6cb';
-            }
-            errorDiv.style.display = message || customMessage ? 'block' : 'none';
-        }
-
-        function hideError() {
-            document.getElementById('error').style.display = 'none';
-        }
-
-        function showResults() {
-            document.getElementById('results').style.display = 'block';
-        }
-    </script>
-</body>
-</html>

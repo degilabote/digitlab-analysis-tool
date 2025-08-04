@@ -254,7 +254,7 @@
         let summary = {};
         let barChart, pieChart;
         let realtimeInterval;
-        let googleAppsScriptUrl = ''; // Google Apps ScriptのWeb App URL
+        let googleAppsScriptUrl = 'https://script.google.com/macros/s/AKfycbysACXGzG-04hpQjIuTrSk0MIVLTPw9uWnWeGb-Z3yxSVcdsEYdSLNZ9VOknja4sWQ/exec'; // 事前設定済み
 
         // 個人別月額目標
         const INDIVIDUAL_TARGETS = {
@@ -408,23 +408,37 @@
             }
         }
 
-        // Google Apps Script経由でリアルタイム連携（JSONP対応）
-        async function loadFromGoogleAppsScript() {
-            const scriptUrl = prompt(
-                'Google Apps ScriptのWeb App URLを入力してください:\n\n' + 
-                '例: https://script.google.com/macros/s/XXXXX/exec\n\n' +
-                '※ デプロイ時は「アクセスできるユーザー: 全員（匿名ユーザーを含む）」に設定してください'
-            );
-            if (!scriptUrl) return;
+        // デフォルトスプレッドシートに接続
+        async function connectToDefaultSpreadsheet() {
+            try {
+                document.getElementById('uploadArea').style.display = 'none';
+                await fetchFromGoogleAppsScript();
+                setupConnection();
+                showError('', 'success', '✅ デジラボスプレッドシートに接続しました');
+            } catch (error) {
+                document.getElementById('uploadArea').style.display = 'block';
+                showError('接続エラー: ' + error.message + '\n\nファイルアップロードまたは別のスプレッドシートをお試しください。');
+            }
+        }
 
-            googleAppsScriptUrl = scriptUrl;
-            
+        // ページ読み込み時に自動接続を試行
+        window.addEventListener('load', async function() {
+            // デフォルトスプレッドシートへの自動接続を試行
             try {
                 await fetchFromGoogleAppsScript();
                 setupConnection();
+                document.getElementById('uploadArea').style.display = 'none';
+                showError('', 'success', '✅ デジラボスプレッドシートに自動接続しました');
             } catch (error) {
-                showError('Google Apps Script連携エラー: ' + error.message);
+                // 自動接続に失敗した場合は通常の画面を表示
+                console.log('自動接続失敗、手動接続を待機中:', error.message);
             }
+        });
+
+        // カスタムスプレッドシートURL入力欄の表示
+        function showSpreadsheetUrlInput() {
+            const area = document.getElementById('customSpreadsheetArea');
+            area.style.display = area.style.display === 'none' ? 'block' : 'none';
         }
 
         // 手動更新
@@ -582,8 +596,13 @@
         function stopRealtime() {
             stopAutoUpdate();
             document.getElementById('realtimeStatus').style.display = 'none';
-            googleAppsScriptUrl = '';
+            document.getElementById('uploadArea').style.display = 'block';
             document.getElementById('autoUpdateToggle').checked = false;
+            
+            // デフォルトスプレッドシートの場合は完全に切断しない
+            if (googleAppsScriptUrl !== 'https://script.google.com/macros/s/AKfycbysACXGzG-04hpQjIuTrSk0MIVLTPw9uWnWeGb-Z3yxSVcdsEYdSLNZ9VOknja4sWQ/exec') {
+                googleAppsScriptUrl = '';
+            }
         }
 
         function processData() {

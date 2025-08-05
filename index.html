@@ -6,6 +6,7 @@
     <title>デジラボユニット払出し票分析</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; }
@@ -290,7 +291,7 @@
                     const data = e.target.result;
                     
                     if (file.name.toLowerCase().endsWith('.csv')) {
-                        rawData = parseCSV(data);
+                        rawData = parseCSVImproved(data);
                     } else {
                         const workbook = XLSX.read(data, { type: 'binary' });
                         const sheetName = workbook.SheetNames[0];
@@ -303,6 +304,7 @@
                     updateDisplay();
                     hideLoading();
                     showResults();
+                    showSuccess('✅ Excelファイルから正常に読み込まれました（' + rawData.length + '件）');
                 } catch (error) {
                     showError('ファイル読み込みエラー: ' + error.message);
                     hideLoading();
@@ -316,31 +318,85 @@
             }
         }
 
-        function parseCSV(csvText) {
-            const lines = csvText.split('\n');
-            const headers = lines[0].split(',').map(header => header.trim().replace(/"/g, ''));
-            const data = [];
+        // 改善されたCSV解析処理
+        function parseCSVImproved(csvText) {
+            console.log('CSV解析開始...');
             
-            for (let i = 1; i < lines.length; i++) {
-                if (lines[i].trim() === '') continue;
+            // Papa Parseを使用した強化されたCSV解析
+            const result = Papa.parse(csvText, {
+                header: true,
+                skipEmptyLines: true,
+                dynamicTyping: false, // 型変換を無効にして手動で処理
+                encoding: 'UTF-8',
+                delimiter: ',',
+                quoteChar: '"',
+                escapeChar: '"',
+                transform: function(value, field) {
+                    // 各フィールドの前後の空白を削除
+                    return value ? value.toString().trim() : '';
+                }
+            });
+
+            console.log('Papa Parse結果:', result);
+            console.log('エラー:', result.errors);
+            console.log('メタ情報:', result.meta);
+
+            if (result.errors.length > 0) {
+                console.warn('CSV解析警告:', result.errors);
+            }
+
+            // データの手動処理と検証
+            const processedData = result.data.map((row, index) => {
+                const processedRow = {};
                 
-                const values = lines[i].split(',').map(value => value.trim().replace(/"/g, ''));
-                const row = {};
-                
-                headers.forEach((header, index) => {
-                    if (values[index] !== undefined) {
-                        if (header === '税込金額' && !isNaN(parseFloat(values[index]))) {
-                            row[header] = parseFloat(values[index]);
-                        } else {
-                            row[header] = values[index];
+                // ヘッダーマッピング（柔軟な対応）
+                const headerMap = {
+                    '申請日': ['申請日', '申請日付', 'date'],
+                    '申請者': ['申請者', 'applicant', '名前'],
+                    '税込金額': ['税込金額', '金額', 'amount'],
+                    '摘要': ['摘要', '概要', 'summary'],
+                    'タイトル': ['タイトル', 'title', 'プロジェクト'],
+                    '発注区分': ['発注区分', '区分', 'type']
+                };
+
+                Object.keys(headerMap).forEach(standardKey => {
+                    const possibleKeys = headerMap[standardKey];
+                    let value = '';
+                    
+                    for (const key of possibleKeys) {
+                        if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
+                            value = row[key];
+                            break;
                         }
                     }
+                    
+                    // 特別な処理
+                    if (standardKey === '税込金額') {
+                        // 金額の処理：カンマ、円マーク、スペースを除去
+                        if (value) {
+                            const cleanValue = value.toString().replace(/[,¥\s円]/g, '');
+                            processedRow[standardKey] = parseFloat(cleanValue) || 0;
+                        } else {
+                            processedRow[standardKey] = 0;
+                        }
+                    } else {
+                        processedRow[standardKey] = value ? value.toString().trim() : '';
+                    }
                 });
-                
-                data.push(row);
-            }
-            
-            return data;
+
+                return processedRow;
+            }).filter(row => {
+                // 有効なデータのみフィルタリング
+                return row['申請者'] && 
+                       row['申請者'] !== '' && 
+                       row['税込金額'] !== undefined && 
+                       !isNaN(row['税込金額']);
+            });
+
+            console.log('処理済みデータ件数:', processedData.length);
+            console.log('サンプルデータ:', processedData.slice(0, 3));
+
+            return processedData;
         }
 
         // デフォルトスプレッドシートから読み込み
@@ -349,13 +405,16 @@
                 showLoading();
                 hideError();
 
+                console.log('スプレッドシート読み込み開始...');
                 const response = await fetch(defaultSpreadsheetUrl);
                 if (!response.ok) {
                     throw new Error('スプレッドシートにアクセスできません。共有設定を確認してください。');
                 }
 
                 const csvText = await response.text();
-                rawData = parseCSV(csvText);
+                console.log('取得したCSVの最初の500文字:', csvText.substring(0, 500));
+                
+                rawData = parseCSVImproved(csvText);
                 
                 processData();
                 createSummary();
@@ -363,9 +422,10 @@
                 hideLoading();
                 showResults();
                 
-                showSuccess('✅ デジラボスプレッドシートから正常に読み込まれました');
+                showSuccess('✅ デジラボスプレッドシートから正常に読み込まれました（' + rawData.length + '件）');
                 
             } catch (error) {
+                console.error('スプレッドシート読み込みエラー:', error);
                 showError('スプレッドシート読み込みエラー: ' + error.message);
                 hideLoading();
             }
@@ -386,7 +446,12 @@
                 let csvUrl;
                 if (url.includes('/edit')) {
                     const spreadsheetId = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/)[1];
-                    csvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv`;
+                    let gid = '0';
+                    const gidMatch = url.match(/gid=([0-9]+)/);
+                    if (gidMatch) {
+                        gid = gidMatch[1];
+                    }
+                    csvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv&gid=${gid}`;
                 } else {
                     showError('正しいGoogleスプレッドシートのURLを入力してください');
                     hideLoading();
@@ -399,7 +464,7 @@
                 }
 
                 const csvText = await response.text();
-                rawData = parseCSV(csvText);
+                rawData = parseCSVImproved(csvText);
                 
                 processData();
                 createSummary();
@@ -407,7 +472,7 @@
                 hideLoading();
                 showResults();
                 
-                showSuccess('✅ スプレッドシートから正常に読み込まれました');
+                showSuccess('✅ スプレッドシートから正常に読み込まれました（' + rawData.length + '件）');
                 
             } catch (error) {
                 showError('スプレッドシート読み込みエラー: ' + error.message);
@@ -435,50 +500,78 @@
         });
 
         function processData() {
+            console.log('データ処理開始...');
+            console.log('生データ件数:', rawData.length);
+
             processedData = rawData.map((row, index) => {
                 let date = null;
                 const dateField = row['申請日'];
                 
                 if (dateField) {
                     if (typeof dateField === 'number') {
+                        // Excelのシリアル番号の場合
                         date = new Date((dateField - 25569) * 86400 * 1000);
                     } else if (typeof dateField === 'string') {
-                        date = new Date(dateField);
+                        // 文字列の日付を解析
+                        if (dateField.includes('/')) {
+                            // YYYY/MM/DD 形式
+                            const parts = dateField.split('/');
+                            if (parts.length === 3) {
+                                const year = parseInt(parts[0]);
+                                const month = parseInt(parts[1]) - 1; // 月は0ベース
+                                const day = parseInt(parts[2]);
+                                date = new Date(year, month, day);
+                            }
+                        } else {
+                            date = new Date(dateField);
+                        }
                     } else if (dateField instanceof Date) {
                         date = dateField;
                     }
                 }
 
-                let amount = 0;
-                const amountField = row['税込金額'];
-                if (amountField !== null && amountField !== undefined && amountField !== '') {
-                    if (typeof amountField === 'number') {
-                        amount = amountField;
-                    } else if (typeof amountField === 'string') {
-                        const cleanAmount = amountField.replace(/[,¥]/g, '');
-                        amount = parseFloat(cleanAmount) || 0;
-                    }
+                // 月の計算
+                let month = '不明';
+                if (date && !isNaN(date.getTime())) {
+                    month = `${date.getFullYear()}年${date.getMonth() + 1}月`;
                 }
 
                 return {
                     id: index,
                     date: date,
-                    month: date && !isNaN(date.getTime()) ? `${date.getFullYear()}年${date.getMonth() + 1}月` : '不明',
-                    applicant: row['申請者'] || '不明',
-                    amount: amount,
-                    summary: row['摘要'] || '不明',
-                    title: row['タイトル'] || '不明',
-                    orderType: row['発注区分'] || '不明'
+                    month: month,
+                    applicant: (row['申請者'] || '').toString().trim(),
+                    amount: row['税込金額'] || 0,
+                    summary: (row['摘要'] || '').toString().trim(),
+                    title: (row['タイトル'] || '').toString().trim(),
+                    orderType: (row['発注区分'] || '').toString().trim()
                 };
-            }).filter(item => 
-                item.applicant !== '不明' && 
-                item.applicant !== '' && 
-                item.month !== '不明' &&
-                !isNaN(item.amount)
-            );
+            }).filter(item => {
+                // より緩い条件でフィルタリング
+                const hasApplicant = item.applicant && item.applicant !== '' && item.applicant !== '不明';
+                const hasValidAmount = !isNaN(item.amount) && item.amount !== null;
+                const hasValidDate = item.month !== '不明';
+                
+                console.log('フィルタリング:', {
+                    applicant: item.applicant,
+                    hasApplicant,
+                    amount: item.amount,
+                    hasValidAmount,
+                    month: item.month,
+                    hasValidDate
+                });
+                
+                return hasApplicant && hasValidAmount && hasValidDate;
+            });
 
             console.log('処理後のデータ件数:', processedData.length);
-            console.log('処理前のデータ件数:', rawData.length);
+            
+            // デバッグ: 後藤さんのデータを確認
+            const gotoData = processedData.filter(item => 
+                item.applicant.includes('後藤') || item.applicant.includes('和典')
+            );
+            console.log('後藤さんのデータ件数:', gotoData.length);
+            console.log('後藤さんのサンプル:', gotoData.slice(0, 5));
         }
 
         function createSummary() {
@@ -550,6 +643,9 @@
                 totalAmount: processedData.reduce((sum, item) => sum + item.amount, 0),
                 totalCount: processedData.length
             };
+
+            // デバッグ: 後藤さんの集計結果を確認
+            console.log('後藤さんの集計結果:', summary.users['後藤　和典']);
         }
 
         function updateDisplay() {
@@ -562,7 +658,8 @@
         }
 
         function updateSummaryCards() {
-            const digitalLabAmount = summary.totalAmount - (summary.orderTypes['開発'] || 0) * 2;
+            // デジラボ実績の正しい計算（開発案件をマイナス）
+            const digitalLabAmount = summary.totalAmount - (summary.orderTypes['開発'] || 0);
             
             document.getElementById('totalAmount').textContent = '¥' + summary.totalAmount.toLocaleString();
             document.getElementById('totalCount').textContent = summary.totalCount + '件';
@@ -575,7 +672,16 @@
         function calculateDigitalLabMonthly() {
             const months = ['2025年4月', '2025年5月', '2025年6月', '2025年7月'];
             return months.map(month => {
-                const monthAmount = (summary.months[month] || 0) - ((summary.orderTypes['開発'] || 0) / 4);
+                // 月別の全体金額を計算
+                let monthAmount = summary.months[month] || 0;
+                
+                // 開発案件を月別で差し引く
+                const developmentAmountInMonth = processedData
+                    .filter(item => item.month === month && item.orderType === '開発')
+                    .reduce((sum, item) => sum + item.amount, 0);
+                
+                monthAmount -= developmentAmountInMonth;
+                
                 const achievementRate = (monthAmount / MONTHLY_QUOTA) * 100;
                 return {
                     month: month,
@@ -622,7 +728,7 @@
                 quotaGrid.appendChild(card);
             });
 
-            const totalDigitalLab = summary.totalAmount - (summary.orderTypes['開発'] || 0) * 2;
+            const totalDigitalLab = summary.totalAmount - (summary.orderTypes['開発'] || 0);
             const overallRate = (totalDigitalLab / (MONTHLY_QUOTA * 4)) * 100;
             
             document.getElementById('totalDigitalLab').textContent = '¥' + totalDigitalLab.toLocaleString();
@@ -638,12 +744,13 @@
 
             Object.keys(INDIVIDUAL_TARGETS).forEach(name => {
                 const target = INDIVIDUAL_TARGETS[name];
-                const userData = summary.users[name] || { total: 0, months: {} };
+                const userData = summary.users[name] || { total: 0, months: {}, orderTypes: {} };
                 
                 const card = document.createElement('div');
                 card.className = 'individual-card';
                 
-                const totalAmount = userData.total - ((userData.orderTypes && userData.orderTypes['開発']) || 0) * 2;
+                // 開発案件をマイナスして計算
+                const totalAmount = userData.total - (userData.orderTypes['開発'] || 0);
                 const monthlyAverage = totalAmount / 4;
                 const achievementRate = (monthlyAverage / target) * 100;
                 
@@ -651,8 +758,14 @@
                 let monthsHtml = '';
                 
                 months.forEach(month => {
+                    // 月別の開発案件を差し引く
                     const monthAmount = userData.months[month] || 0;
-                    const monthRate = (monthAmount / target) * 100;
+                    const developmentInMonth = processedData
+                        .filter(item => item.applicant === name && item.month === month && item.orderType === '開発')
+                        .reduce((sum, item) => sum + item.amount, 0);
+                    
+                    const adjustedMonthAmount = monthAmount - developmentInMonth;
+                    const monthRate = (adjustedMonthAmount / target) * 100;
                     const monthProgressClass = monthRate >= 100 ? 'progress-green' : 
                                              monthRate >= 80 ? 'progress-yellow' : 'progress-red';
                     
@@ -660,7 +773,7 @@
                         <div class="month-detail">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
                                 <span style="font-weight: bold;">${month}</span>
-                                <span>¥${monthAmount.toLocaleString()}</span>
+                                <span>¥${adjustedMonthAmount.toLocaleString()}</span>
                             </div>
                             <div class="month-progress">
                                 <div class="progress-fill ${monthProgressClass}" style="width: ${Math.min(monthRate, 100)}%"></div>
@@ -747,13 +860,17 @@
         }
 
         function updateChartsWithFilteredData(data) {
-            // 棒グラフのデータ準備
+            // 棒グラフのデータ準備（開発案件をマイナス計算）
             const userAmounts = {};
             data.forEach(item => {
                 if (!userAmounts[item.applicant]) {
                     userAmounts[item.applicant] = 0;
                 }
-                userAmounts[item.applicant] += item.amount;
+                if (item.orderType === '開発') {
+                    userAmounts[item.applicant] -= item.amount;
+                } else {
+                    userAmounts[item.applicant] += item.amount;
+                }
             });
 
             const sortedUsers = Object.entries(userAmounts)

@@ -57,9 +57,37 @@
         .text-purple { color: #6f42c1; }
         .text-orange { color: #fd7e14; }
         .text-teal { color: #20c997; }
+        
+        /* ページネーション用スタイル */
+        .pagination-btn {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+        .pagination-btn:hover:not(:disabled) {
+            background: #0056b3;
+        }
+        .pagination-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
         @media (max-width: 768px) {
             .charts-section { grid-template-columns: 1fr; }
             .summary-cards { grid-template-columns: 1fr 1fr; }
+            #pagination {
+                flex-wrap: wrap;
+                gap: 5px;
+            }
+            .pagination-btn {
+                padding: 6px 8px;
+                font-size: 12px;
+            }
         }
     </style>
 </head>
@@ -212,7 +240,19 @@
 
             <!-- データテーブル -->
             <div class="data-table">
-                <h3>📋 詳細データ</h3>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h3>📋 詳細データ</h3>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <label for="itemsPerPage" style="font-size: 14px; color: #666;">表示件数:</label>
+                        <select id="itemsPerPage" style="padding: 5px; border: 1px solid #ddd; border-radius: 4px;">
+                            <option value="50">50件</option>
+                            <option value="100" selected>100件</option>
+                            <option value="200">200件</option>
+                            <option value="500">500件</option>
+                        </select>
+                    </div>
+                </div>
+                
                 <div style="overflow-x: auto;">
                     <table class="table">
                         <thead>
@@ -228,7 +268,17 @@
                         <tbody id="dataTableBody"></tbody>
                     </table>
                 </div>
-                <p id="tableInfo" style="margin-top: 10px; color: #666; font-size: 14px;"></p>
+                
+                <!-- ページネーション -->
+                <div id="pagination" style="margin-top: 20px; display: flex; justify-content: center; align-items: center; gap: 10px;">
+                    <button id="firstPage" class="pagination-btn" onclick="goToPage(1)">≪ 最初</button>
+                    <button id="prevPage" class="pagination-btn" onclick="goToPage(currentPage - 1)">‹ 前へ</button>
+                    <span id="pageInfo" style="margin: 0 15px; font-weight: 500; color: #333;"></span>
+                    <button id="nextPage" class="pagination-btn" onclick="goToPage(currentPage + 1)">次へ ›</button>
+                    <button id="lastPage" class="pagination-btn" onclick="goToPage(totalPages)">最後 ≫</button>
+                </div>
+                
+                <p id="tableInfo" style="margin-top: 15px; color: #666; font-size: 14px; text-align: center;"></p>
             </div>
         </div>
     </div>
@@ -237,9 +287,15 @@
         // グローバル変数
         let rawData = [];
         let processedData = [];
+        let filteredData = [];
         let summary = {};
         let barChart, pieChart;
         let defaultSpreadsheetUrl = 'https://docs.google.com/spreadsheets/d/1zZTMede6zZe80Sz56BZAqUKtarU0boF17eVqZxTvz30/export?format=csv&gid=1905694608';
+
+        // ページネーション用変数
+        let currentPage = 1;
+        let itemsPerPage = 100;
+        let totalPages = 1;
 
         // 個人別月額目標
         const INDIVIDUAL_TARGETS = {
@@ -844,13 +900,15 @@
             const titleFilter = document.getElementById('titleFilter').value;
             const orderTypeFilter = document.getElementById('orderTypeFilter').value;
 
-            const filteredData = processedData.filter(item => {
+            filteredData = processedData.filter(item => {
                 return (userFilter === '全員' || item.applicant === userFilter) &&
                        (monthFilter === '全月' || item.month === monthFilter) &&
                        (titleFilter === '全タイトル' || item.title === titleFilter) &&
                        (orderTypeFilter === '全区分' || item.orderType === orderTypeFilter);
             });
 
+            // フィルター変更時にページを1に戻す
+            currentPage = 1;
             updateChartsWithFilteredData(filteredData);
             updateDataTableWithFilteredData(filteredData);
         }
@@ -968,16 +1026,27 @@
         }
 
         function updateDataTable() {
-            updateDataTableWithFilteredData(processedData);
+            filteredData = processedData; // 初期化時は全データ
+            currentPage = 1;
+            updateDataTableWithFilteredData(filteredData);
         }
 
         function updateDataTableWithFilteredData(data) {
             const tbody = document.getElementById('dataTableBody');
             const tableInfo = document.getElementById('tableInfo');
             
+            // ページネーション変数の更新
+            itemsPerPage = parseInt(document.getElementById('itemsPerPage').value);
+            totalPages = Math.ceil(data.length / itemsPerPage);
+            
+            // 現在のページのデータを取得
+            const startIndex = (currentPage - 1) * itemsPerPage;
+            const endIndex = startIndex + itemsPerPage;
+            const currentPageData = data.slice(startIndex, endIndex);
+            
             tbody.innerHTML = '';
             
-            data.slice(0, 100).forEach(item => {
+            currentPageData.forEach(item => {
                 const row = document.createElement('tr');
                 
                 const dateStr = item.date ? item.date.toLocaleDateString('ja-JP') : '';
@@ -996,8 +1065,42 @@
                 tbody.appendChild(row);
             });
             
-            tableInfo.textContent = `表示: ${Math.min(data.length, 100)}件 / 全${data.length}件`;
+            // ページネーション情報の更新
+            updatePaginationInfo(data.length);
+            
+            tableInfo.textContent = `全${data.length}件中 ${startIndex + 1}-${Math.min(endIndex, data.length)}件を表示`;
         }
+
+        function updatePaginationInfo(totalItems) {
+            const pageInfo = document.getElementById('pageInfo');
+            const firstPageBtn = document.getElementById('firstPage');
+            const prevPageBtn = document.getElementById('prevPage');
+            const nextPageBtn = document.getElementById('nextPage');
+            const lastPageBtn = document.getElementById('lastPage');
+            
+            pageInfo.textContent = `${currentPage} / ${totalPages}ページ`;
+            
+            // ボタンの有効/無効状態
+            firstPageBtn.disabled = prevPageBtn.disabled = currentPage === 1;
+            nextPageBtn.disabled = lastPageBtn.disabled = currentPage === totalPages;
+            
+            // ページネーション全体の表示/非表示
+            document.getElementById('pagination').style.display = totalPages <= 1 ? 'none' : 'flex';
+        }
+
+        function goToPage(page) {
+            if (page < 1 || page > totalPages) return;
+            currentPage = page;
+            updateDataTableWithFilteredData(filteredData);
+        }
+
+        // 表示件数変更時のイベントリスナー
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('itemsPerPage').addEventListener('change', function() {
+                currentPage = 1; // ページを1に戻す
+                updateDataTableWithFilteredData(filteredData);
+            });
+        });
 
         // UI ヘルパー関数
         function showLoading() {
